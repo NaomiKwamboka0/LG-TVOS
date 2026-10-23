@@ -4,9 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/select.h>
 #include <sys/stat.h>
-#include <termios.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -14,7 +12,7 @@
 #include "penalty.h"
 #include "platform.h"
 #include "racer.h"
-#include "render_text.h"
+#include "frontend.h"
 #include "save.h"
 #include "session.h"
 #include "shell.h"
@@ -29,71 +27,6 @@ static char *script_tokens[1024];
 static int script_len, script_pos, script_wait;
 
 /* ---- input ---------------------------------------------------------- */
-
-static struct termios orig_term;
-static int raw_on;
-
-static void raw_off(void)
-{
-    if (raw_on) {
-        tcsetattr(0, TCSANOW, &orig_term);
-        raw_on = 0;
-        printf("\033[?25h\n");
-    }
-}
-
-static void raw_enable(void)
-{
-    struct termios t;
-    if (tcgetattr(0, &orig_term) != 0)
-        return;
-    t = orig_term;
-    t.c_lflag &= ~(tcflag_t)(ICANON | ECHO);
-    t.c_cc[VMIN] = 0;
-    t.c_cc[VTIME] = 0;
-    tcsetattr(0, TCSANOW, &t);
-    raw_on = 1;
-    atexit(raw_off);
-    printf("\033[?25l");
-}
-
-static int wait_readable(int ms)
-{
-    fd_set fs;
-    struct timeval tv;
-    FD_ZERO(&fs);
-    FD_SET(0, &fs);
-    tv.tv_sec = ms / 1000;
-    tv.tv_usec = (ms % 1000) * 1000;
-    return select(1, &fs, NULL, NULL, &tv) > 0;
-}
-
-static ft_key poll_terminal(int ms)
-{
-    unsigned char c, seq[2];
-    if (!wait_readable(ms) || read(0, &c, 1) != 1)
-        return FT_NONE;
-    if (c == 27) {
-        if (!wait_readable(30) || read(0, &seq[0], 1) != 1 || seq[0] != '[')
-            return FT_BACK;
-        if (read(0, &seq[1], 1) != 1)
-            return FT_NONE;
-        switch (seq[1]) {
-        case 'A': return FT_UP;
-        case 'B': return FT_DOWN;
-        case 'C': return FT_RIGHT;
-        case 'D': return FT_LEFT;
-        default: return FT_NONE;
-        }
-    }
-    if (c == '\r' || c == '\n' || c == ' ')
-        return FT_OK;
-    if (c == 127 || c == 8 || c == 'b')
-        return FT_BACK;
-    if (c == 'q')
-        quit_req = 1;
-    return FT_NONE;
-}
 
 static ft_key script_next(void)
 {
@@ -122,18 +55,19 @@ static ft_key script_next(void)
     return FT_NONE;
 }
 
+#ifdef FT_WINDOW
+static const sim_frontend *fe = &frontend_window;
+#else
+static const sim_frontend *fe = &frontend_text;
+#endif
+const char *sim_dump_path;
+
 /* frame_ms > 0: game frame pacing; 0: block until a key (menus). */
 static ft_key next_key(int frame_ms)
 {
-    ft_key k;
     if (script_mode)
         return script_next();
-    if (frame_ms > 0)
-        return poll_terminal(frame_ms);
-    do {
-        k = poll_terminal(200);
-    } while (k == FT_NONE && !quit_req);
-    return k;
+    return fe->poll(frame_ms, &quit_req);
 }
 
 /* ---- play-time meter ------------------------------------------------ */
@@ -254,7 +188,7 @@ static void run_racer(session *ss, shell *s)
                                                     : "New best score (could not save)");
             }
         }
-        render_racer(&r, best, status);
+        fe->racer(&r, best, (ft_lang)ss->settings.lang, status);
     }
     session_play_end(ss, s);
 }
@@ -296,7 +230,7 @@ static void run_penalty(session *ss, shell *s)
             break;
         }
         if (dirty || p.cooldown > 0)
-            render_penalty(&p, status);
+            fe->penalty(&p, (ft_lang)ss->settings.lang, status);
         dirty = 0;
     }
     if (penalty_pack(&p, buf, sizeof buf) == PEN_PACKED_SIZE)
@@ -330,7 +264,7 @@ static void run_garden(session *ss, shell *s)
     }
     save_note(status, sizeof status, r_load, "Garden");
 
-    render_garden(&g, status);
+    fe->garden(&g, (ft_lang)ss->settings.lang, status);
     meter_start(&meter);
     while (g.mode != GM_EXITED && !quit_req) {
         ft_key k = next_key(FRAME_MS);
@@ -352,7 +286,7 @@ static void run_garden(session *ss, shell *s)
                 g.dirty = 0;
             snprintf(status, sizeof status, w == FT_SAVE_OK ? "Saved to slot 1" : "Save failed; garden kept in memory");
         }
-        render_garden(&g, status);
+        fe->garden(&g, (ft_lang)ss->settings.lang, status);
     }
     session_play_end(ss, s);
 }
@@ -375,7 +309,7 @@ static void base_config(shell_config *c, int demo_received)
 static void usage(void)
 {
     fprintf(stderr,
-            "usage: family-tv-sim [--demo-received] [--data DIR] [--keys K,K,...]\n"
+            "usage: family-tv-sim [--demo-received] [--data DIR] [--keys K,K,...] [--dump-frame FILE.ppm]\n"
             "  keys: L R U D OK BACK W (wait 1s) Wn (wait n ticks)\n");
 }
 
@@ -390,6 +324,8 @@ int main(int argc, char **argv)
     for (i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--demo-received")) {
             demo = 1;
+        } else if (!strcmp(argv[i], "--dump-frame") && i + 1 < argc) {
+            sim_dump_path = argv[++i];
         } else if (!strcmp(argv[i], "--data") && i + 1 < argc) {
             data_dir = argv[++i];
         } else if (!strcmp(argv[i], "--keys") && i + 1 < argc) {
@@ -413,13 +349,13 @@ int main(int argc, char **argv)
         r_load = session_init(&ss, &s, data_path(settings_path, sizeof settings_path, "settings.sav"));
     }
     save_note(s.status, sizeof s.status, r_load, "Settings");
-    if (!script_mode)
-        raw_enable();
+    if (fe->open(script_mode) != 0)
+        return 1;
 
     while (!quit_req) {
         ft_key k;
         int game;
-        render_shell(&s);
+        fe->shell(&s);
         k = next_key(0);
         if (k == FT_NONE)
             continue;
@@ -431,5 +367,6 @@ int main(int argc, char **argv)
         else if (game == GAME_GARDEN)
             run_garden(&ss, &s);
     }
+    fe->close();
     return 0;
 }
