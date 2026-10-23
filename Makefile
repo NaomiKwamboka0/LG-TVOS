@@ -7,14 +7,15 @@ INC := -Igames -Iui -Iplatform -Iservices -Isim -Ithird_party/monocypher
 
 CORE_SRC := games/common.c games/save.c games/racer.c games/penalty.c games/garden.c \
             ui/shell.c services/i18n.c services/pin.c services/playtime.c services/settings.c \
-            services/session.c third_party/monocypher/monocypher.c
+            services/session.c third_party/monocypher/monocypher.c \
+            ui/canvas.c ui/font_data.c ui/view.c
 CORE_HDR := $(wildcard games/*.h ui/*.h platform/*.h services/*.h sim/*.h third_party/monocypher/*.h)
-TEST_SRC := tests/unit/test_core.c tests/unit/test_services.c
+TEST_SRC := tests/unit/test_core.c tests/unit/test_services.c tests/unit/test_view.c
 SIM_SRC := $(CORE_SRC) platform/sim.c sim/render_text.c sim/main.c
 
-.PHONY: all host-probe target-probe sim run-sim smoke test c-test py-test validate install-check clean
+.PHONY: all host-probe target-probe sim run-sim smoke screens fonts check-fonts test c-test py-test validate install-check clean
 
-all: host-probe test smoke validate
+all: host-probe check-fonts test smoke validate
 
 host-probe:
 	mkdir -p $(OUT)/host
@@ -56,6 +57,29 @@ smoke: sim
 	grep -q "Lugha: Kiswahili" $(OUT)/smoke2.txt
 	! grep -q "0000" $(OUT)/smoke2.txt
 	@echo "smoke: OK"
+
+FONT_BDF := assets/fonts/spleen/spleen-12x24.bdf assets/fonts/spleen/spleen-16x32.bdf assets/fonts/spleen/spleen-32x64.bdf
+
+# Regenerate ui/font_data.c from the vendored BDF files.
+fonts:
+	python3 -I tools/bdf2c.py $(FONT_BDF) > ui/font_data.c
+
+# The checked-in font data must match the vendored fonts exactly.
+check-fonts:
+	mkdir -p $(OUT)
+	python3 -I tools/bdf2c.py $(FONT_BDF) > $(OUT)/font_data.c
+	cmp -s $(OUT)/font_data.c ui/font_data.c || { echo "ui/font_data.c is stale: run make fonts"; exit 1; }
+	@echo "fonts: OK"
+
+# Render every screen to docs/screens/*.png for review.
+screens: $(OUT)/host/family-tv-shots
+	rm -rf $(OUT)/screens
+	$(OUT)/host/family-tv-shots $(OUT)/screens > /dev/null
+	python3 -I tools/ppm2png.py docs/screens $(OUT)/screens/*.ppm
+
+$(OUT)/host/family-tv-shots: $(CORE_SRC) platform/sim.c sim/shots.c $(CORE_HDR)
+	mkdir -p $(OUT)/host
+	$(CC) $(CFLAGS) $(WARN) $(INC) -o $@ $(CORE_SRC) platform/sim.c sim/shots.c
 
 $(OUT)/host/test-core: $(CORE_SRC) platform/sim.c $(TEST_SRC) tests/unit/check.h $(CORE_HDR)
 	mkdir -p $(OUT)/host
