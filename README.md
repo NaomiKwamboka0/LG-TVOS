@@ -7,6 +7,7 @@ the *Installable OS development plan v2.0*. Aerial TV comes first; the computer 
 
 ```sh
 make            # probe, C + Python tests, simulator smoke test, manifest check
+make run-window # play the pixel version in a desktop window (needs: brew install sdl2)
 make run-sim    # play the home screen and games in the terminal (demo favourites)
                 # parent settings: More -> Parent settings (you choose the PIN on first use)
 make screens    # draw every screen to docs/screens/*.png (see docs/screens/README.md)

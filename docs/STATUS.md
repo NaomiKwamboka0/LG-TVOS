@@ -47,6 +47,10 @@ All 56 acceptance tests (H, U, G, N, F, S, P, K) are NOT RUN on the TV.
   home screen, lists, PIN entry and all three games, with Spleen bitmap fonts (BSD-2-Clause). Every
   draw is clipped to the buffer; views are pure functions of state. `make screens` writes
   `docs/screens/*.png`. The TV display backend is still unchosen (gate I05).
+- `sim/frontend_*.c`: the simulator runs either in the terminal (`make run-sim`) or in a desktop
+  window showing the real pixel views (`make run-window`, SDL2 on the computer only; SDL is never
+  part of the TV build). Held OK/Back do not repeat. `make window-smoke` checks the window build
+  headlessly.
 - Tests: 402 host checks (ASan/UBSan) plus two scripted simulator walks. Host logic for G01-G05,
   F03, S01, U01, U07-U09, R06. These are not TV results; the TV tests stay NOT RUN.
 
@@ -54,5 +58,5 @@ All 56 acceptance tests (H, U, G, N, F, S, P, K) are NOT RUN on the TV.
 
 1. Owner: Work packet A (p.31) using the normal remote — channel list/order, Citizen/KTN/SportyTV reception, YouTube/Netflix status, stock timings.
 2. Family: review the Kiswahili wording in `services/i18n.c`.
-3. Host: display/input backend interface so the pixel views can run in a window on the computer
-   and later on the TV (backend chosen only after gate I05); optional offline-first fixtures cache.
+3. Host: frame-time and input-latency measurement in the window build (groundwork for P01/P03);
+   optional offline-first fixtures cache. TV display/input backend only after gates I02-I05.

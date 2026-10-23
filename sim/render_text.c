@@ -1,5 +1,7 @@
 #include "render_text.h"
 
+#include "frontend.h"
+
 #include <stdio.h>
 #include <time.h>
 
@@ -8,7 +10,7 @@
 #define RST "\033[0m"
 
 /* UTC internally, Africa/Nairobi (UTC+3, no DST) on screen. */
-static void nairobi_clock(char *out, size_t n)
+void sim_clock_text(char *out, size_t n)
 {
     time_t t = time(NULL) + 3 * 3600;
     struct tm tmv;
@@ -24,7 +26,7 @@ static void nairobi_clock(char *out, size_t n)
 static void header(const char *title, const char *right)
 {
     char clock[8];
-    nairobi_clock(clock, sizeof clock);
+    sim_clock_text(clock, sizeof clock);
     printf(CLEAR "  %-28s Nairobi %s | %s   [SIMULATOR]\n\n", title, clock, right);
 }
 
