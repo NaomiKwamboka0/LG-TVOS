@@ -9,6 +9,7 @@ the *Installable OS development plan v2.0*. Aerial TV comes first; the computer 
 make            # probe, C + Python tests, simulator smoke test, manifest check
 make run-sim    # play the home screen and games in the terminal (demo favourites)
                 # parent settings: More -> Parent settings (you choose the PIN on first use)
+make screens    # draw every screen to docs/screens/*.png (see docs/screens/README.md)
 make install-check   # expected to REJECT until runtime/recovery evidence exists
 make target-probe CROSS_CC=...   # blocked until the target ABI is verified (gate I03)
 ```

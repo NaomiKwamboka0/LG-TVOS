@@ -19,5 +19,6 @@ extern int failures, checks;
 /* Removes a save file and its .prev/.bad/.tmp companions. */
 void test_clean_save(const char *path);
 void run_service_tests(void);
+void run_view_tests(void);
 
 #endif
