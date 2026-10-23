@@ -1,0 +1,39 @@
+#ifndef FT_I18N_H
+#define FT_I18N_H
+
+/* Optional Kiswahili labels (plan p.14, p.20). English is the default; the
+ * family chooses in Parent settings. The Kiswahili text is a first draft for
+ * the family to correct. Remote button names (OK, Back, Home) stay as printed
+ * on the remote. */
+
+typedef enum { LANG_EN, LANG_SW, LANG_COUNT } ft_lang;
+
+typedef enum {
+    STR_FAMILY_TV,
+    STR_LIVE_TV, STR_LIVE_TV_HINT,
+    STR_YOUTUBE, STR_NETFLIX, STR_APP_HINT,
+    STR_FOOTBALL, STR_FOOTBALL_HINT,
+    STR_GAMES, STR_GAMES_HINT,
+    STR_MORE, STR_MORE_HINT,
+    STR_ALL_CHANNELS, STR_WEB_SEARCH, STR_TO_CHILD, STR_TO_PARENT,
+    STR_PARENT_SETTINGS, STR_APP_STATUS,
+    STR_GAME_RACER, STR_GAME_PENALTY, STR_GAME_GARDEN,
+    STR_HELP_HOME, STR_HELP_LIST, STR_HELP_PIN,
+    STR_PARENT, STR_CHILD,
+    STR_PIN_ENTER, STR_PIN_NEW, STR_PIN_CONFIRM, STR_PIN_WRONG, STR_PIN_LOCKED,
+    STR_PIN_MISMATCH, STR_PIN_SAVED, STR_NEED_PIN_FIRST,
+    STR_CHILD_ACTIVE, STR_PARENT_ACTIVE,
+    STR_LANGUAGE, STR_CHILD_LIMIT, STR_LIMIT_OFF, STR_MINUTES,
+    STR_GRANT_15, STR_GRANTED, STR_RESET_TODAY, STR_RESET_DONE, STR_CHANGE_PIN,
+    STR_ALLOWED, STR_BLOCKED, STR_SETTINGS_LOCKED, STR_SAVE_FAILED,
+    STR_TIME_UP, STR_TIME_LEFT,
+    STR_LIVE_OPENED, STR_LIVE_FAILED, STR_TUNE_FALLBACK, STR_TUNED,
+    STR_LIST_OPENED, STR_LIST_FAILED, STR_APP_UNAVAILABLE, STR_SEARCH_UNAVAILABLE,
+    STR_UNAVAILABLE,
+    STR_COUNT
+} ft_str;
+
+const char *tr(ft_lang lang, ft_str id);
+const char *lang_name(ft_lang lang);
+
+#endif

@@ -12,14 +12,17 @@
 
 #include "garden.h"
 #include "penalty.h"
+#include "platform.h"
 #include "racer.h"
 #include "render_text.h"
 #include "save.h"
 #include "session.h"
 #include "shell.h"
 
-#define DATA_DIR "out/simdata"
+#define DEFAULT_DATA_DIR "out/simdata"
+#define FRAME_MS (1000 / FT_TICK_HZ)
 
+static const char *data_dir = DEFAULT_DATA_DIR;
 static int quit_req;
 static int script_mode;
 static char *script_tokens[1024];
@@ -133,13 +136,55 @@ static ft_key next_key(int frame_ms)
     return k;
 }
 
-/* Scripted runs print every frame too, so smoke tests can grep the output. */
-static int show_frames(void)
+/* ---- play-time meter ------------------------------------------------ */
+
+/* Scripted runs use a simulated clock (one frame per loop) so they are repeatable. */
+static uint64_t meter_now(void)
 {
-    return 1;
+    static uint64_t fake;
+    if (script_mode)
+        return fake += FRAME_MS;
+    return plat_monotonic_ms();
+}
+
+typedef struct {
+    uint64_t last_ms;
+    uint32_t carry_ms;
+} play_meter;
+
+static void meter_start(play_meter *m)
+{
+    m->last_ms = meter_now();
+    m->carry_ms = 0;
+}
+
+/* Counts time only while the game is actively played (not paused).
+ * Returns 0 once a child's allowance has run out. */
+static int meter_step(play_meter *m, int active, session *ss, shell *s)
+{
+    uint64_t now = meter_now();
+    uint32_t secs;
+    if (active)
+        m->carry_ms += (uint32_t)(now - m->last_ms);
+    m->last_ms = now;
+    secs = m->carry_ms / 1000;
+    m->carry_ms %= 1000;
+    return secs ? session_play_account(ss, s, secs) : 1;
+}
+
+static void time_up(session *ss, shell *s)
+{
+    snprintf(s->status, sizeof s->status, "[%s] %s", plat_name(),
+             tr((ft_lang)ss->settings.lang, STR_TIME_UP));
 }
 
 /* ---- saves ------------------------------------------------------------ */
+
+static const char *data_path(char *out, size_t n, const char *file)
+{
+    snprintf(out, n, "%s/%s", data_dir, file);
+    return out;
+}
 
 static void save_note(char *status, size_t n, int r, const char *what)
 {
@@ -167,12 +212,14 @@ static uint32_t next_seed(void)
     return script_mode ? 1u : (uint32_t)time(NULL);
 }
 
-static void run_racer(void)
+static void run_racer(session *ss, shell *s)
 {
-    static const char path[] = DATA_DIR "/racer.sav";
+    char path_buf[512];
+    const char *path = data_path(path_buf, sizeof path_buf, "racer.sav");
     uint8_t buf[4 * RACER_LEVELS];
     uint32_t best[RACER_LEVELS] = {0}, len = 0;
     char status[128] = "";
+    play_meter meter;
     racer r;
     int i, recorded = 0, r_load;
 
@@ -183,11 +230,17 @@ static void run_racer(void)
     save_note(status, sizeof status, r_load, "High scores");
 
     racer_init(&r, next_seed(), RACER_EASY, 0);
+    meter_start(&meter);
     while (r.state != RACER_EXITED && !quit_req) {
-        ft_key k = next_key(1000 / FT_TICK_HZ);
+        ft_key k = next_key(FRAME_MS);
         if (k != FT_NONE)
             racer_key(&r, k);
         racer_tick(&r);
+        if (!meter_step(&meter, r.state == RACER_RUNNING, ss, s)) {
+            time_up(ss, s);
+            r.state = RACER_EXITED;
+            break;
+        }
         if (r.state == RACER_RUNNING)
             recorded = 0;
         if ((r.state == RACER_FINISHED || r.state == RACER_CRASHED) && !recorded) {
@@ -201,19 +254,21 @@ static void run_racer(void)
                                                     : "New best score (could not save)");
             }
         }
-        if (show_frames())
-            render_racer(&r, best, status);
+        render_racer(&r, best, status);
     }
+    session_play_end(ss, s);
 }
 
-static void run_penalty(void)
+static void run_penalty(session *ss, shell *s)
 {
-    static const char path[] = DATA_DIR "/penalty.sav";
+    char path_buf[512];
+    const char *path = data_path(path_buf, sizeof path_buf, "penalty.sav");
     uint8_t buf[PEN_PACKED_SIZE];
     uint32_t len = 0;
     char status[128] = "";
+    play_meter meter;
     penalty p;
-    int r_load;
+    int r_load, dirty = 1;
 
     penalty_init(&p, next_seed(), 1);
     r_load = ft_save_read(path, "PCSV", 1, buf, sizeof buf, &len);
@@ -226,27 +281,43 @@ static void run_penalty(void)
     }
     save_note(status, sizeof status, r_load, "Match");
 
+    meter_start(&meter);
     while (p.phase != PEN_EXITED && !quit_req) {
-        ft_key k = next_key(1000 / FT_TICK_HZ);
+        ft_key k = next_key(FRAME_MS);
         if (k != FT_NONE) {
             penalty_key(&p, k);
             status[0] = '\0';
+            dirty = 1;
         }
         penalty_tick(&p);
-        if (show_frames() && (k != FT_NONE || p.cooldown > 0 || status[0]))
+        if (!meter_step(&meter, p.phase != PEN_PAUSED, ss, s)) {
+            time_up(ss, s);
+            p.phase = PEN_EXITED;
+            break;
+        }
+        if (dirty || p.cooldown > 0)
             render_penalty(&p, status);
+        dirty = 0;
     }
     if (penalty_pack(&p, buf, sizeof buf) == PEN_PACKED_SIZE)
         ft_save_write(path, "PCSV", 1, buf, PEN_PACKED_SIZE);
+    session_play_end(ss, s);
 }
 
-static void run_garden(void)
+static int save_garden(const garden *g, uint8_t *buf, size_t cap, const char *path)
 {
-    static const char path[] = DATA_DIR "/garden1.sav";
+    return ft_save_write(path, "BGSV", 1, buf, (uint32_t)garden_pack(g, buf, cap));
+}
+
+static void run_garden(session *ss, shell *s)
+{
+    char path_buf[512];
+    const char *path = data_path(path_buf, sizeof path_buf, "garden1.sav");
     static uint8_t buf[GARDEN_PACKED_SIZE];
     static garden g;
     uint32_t len = 0;
     char status[128] = "";
+    play_meter meter;
     int r_load;
 
     garden_init(&g);
@@ -259,35 +330,40 @@ static void run_garden(void)
     }
     save_note(status, sizeof status, r_load, "Garden");
 
-    if (show_frames())
-        render_garden(&g, status);
+    render_garden(&g, status);
+    meter_start(&meter);
     while (g.mode != GM_EXITED && !quit_req) {
-        ft_key k = next_key(0);
+        ft_key k = next_key(FRAME_MS);
         garden_action a;
+        if (!meter_step(&meter, g.mode == GM_EDIT || g.mode == GM_PALETTE, ss, s)) {
+            if (g.dirty)
+                save_garden(&g, buf, sizeof buf, path); /* keep the child's work */
+            time_up(ss, s);
+            g.mode = GM_EXITED;
+            break;
+        }
         if (k == FT_NONE)
             continue;
         a = garden_key(&g, k);
         status[0] = '\0';
         if (a == GA_SAVE || a == GA_SAVE_EXIT) {
-            int w = ft_save_write(path, "BGSV", 1, buf, (uint32_t)garden_pack(&g, buf, sizeof buf));
+            int w = save_garden(&g, buf, sizeof buf, path);
             if (w == FT_SAVE_OK)
                 g.dirty = 0;
             snprintf(status, sizeof status, w == FT_SAVE_OK ? "Saved to slot 1" : "Save failed; garden kept in memory");
         }
-        if (show_frames())
-            render_garden(&g, status);
+        render_garden(&g, status);
     }
+    session_play_end(ss, s);
 }
 
 /* ---- main --------------------------------------------------------------- */
 
-static void default_config(shell_config *c, int demo_received)
+static void base_config(shell_config *c, int demo_received)
 {
     static const char *const names[] = {"Citizen TV", "KTN", "SportyTV"};
     int i;
     memset(c, 0, sizeof *c);
-    c->profile = PROFILE_PARENT;
-    c->child_games = (1u << GAME_RACER) | (1u << GAME_PENALTY) | (1u << GAME_GARDEN);
     for (i = 0; i < 3; i++) {
         snprintf(c->favs[i].name, sizeof c->favs[i].name, "%s%s", names[i], demo_received ? " (demo)" : "");
         /* Reception is unknown until Work packet A; --demo-received fakes it, labelled. */
@@ -299,20 +375,23 @@ static void default_config(shell_config *c, int demo_received)
 static void usage(void)
 {
     fprintf(stderr,
-            "usage: family-tv-sim [--demo-received] [--keys K,K,...]\n"
+            "usage: family-tv-sim [--demo-received] [--data DIR] [--keys K,K,...]\n"
             "  keys: L R U D OK BACK W (wait 1s) Wn (wait n ticks)\n");
 }
 
 int main(int argc, char **argv)
 {
     shell_config cfg;
-    shell s;
-    int demo = 0, i;
+    static shell s;
+    static session ss;
+    int demo = 0, i, r_load;
     static char keybuf[4096];
 
     for (i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--demo-received")) {
             demo = 1;
+        } else if (!strcmp(argv[i], "--data") && i + 1 < argc) {
+            data_dir = argv[++i];
         } else if (!strcmp(argv[i], "--keys") && i + 1 < argc) {
             char *tok;
             snprintf(keybuf, sizeof keybuf, "%s", argv[++i]);
@@ -326,29 +405,31 @@ int main(int argc, char **argv)
     }
 
     mkdir("out", 0755);
-    mkdir(DATA_DIR, 0755);
-    default_config(&cfg, demo);
+    mkdir(data_dir, 0755);
+    base_config(&cfg, demo);
     shell_init(&s, &cfg);
+    {
+        char settings_path[512];
+        r_load = session_init(&ss, &s, data_path(settings_path, sizeof settings_path, "settings.sav"));
+    }
+    save_note(s.status, sizeof s.status, r_load, "Settings");
     if (!script_mode)
         raw_enable();
 
     while (!quit_req) {
         ft_key k;
-        shell_action a;
         int game;
-        if (show_frames())
-            render_shell(&s);
+        render_shell(&s);
         k = next_key(0);
         if (k == FT_NONE)
             continue;
-        a = shell_key(&s, k);
-        game = session_dispatch(&s, a);
+        game = session_dispatch(&ss, &s, shell_key(&s, k));
         if (game == GAME_RACER)
-            run_racer();
+            run_racer(&ss, &s);
         else if (game == GAME_PENALTY)
-            run_penalty();
+            run_penalty(&ss, &s);
         else if (game == GAME_GARDEN)
-            run_garden();
+            run_garden(&ss, &s);
     }
     return 0;
 }
