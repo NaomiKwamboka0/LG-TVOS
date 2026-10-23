@@ -11,11 +11,19 @@ CORE_SRC := games/common.c games/save.c games/racer.c games/penalty.c games/gard
             ui/canvas.c ui/font_data.c ui/view.c
 CORE_HDR := $(wildcard games/*.h ui/*.h platform/*.h services/*.h sim/*.h third_party/monocypher/*.h)
 TEST_SRC := tests/unit/test_core.c tests/unit/test_services.c tests/unit/test_view.c
-SIM_SRC := $(CORE_SRC) platform/sim.c sim/render_text.c sim/main.c
+SIM_SRC := $(CORE_SRC) platform/sim.c sim/render_text.c sim/frontend_text.c sim/main.c
 
-.PHONY: all host-probe target-probe sim run-sim smoke screens fonts check-fonts test c-test py-test validate install-check clean
+# Optional desktop window (SDL2, development computer only: brew install sdl2).
+SDL_CONFIG := $(shell command -v sdl2-config 2>/dev/null)
+ifneq ($(SDL_CONFIG),)
+SDL_CFLAGS := $(patsubst -I%,-isystem %,$(shell sdl2-config --cflags))
+SDL_LIBS := $(shell sdl2-config --libs)
+WINDOW_CHECK := window-smoke
+endif
 
-all: host-probe check-fonts test smoke validate
+.PHONY: all host-probe target-probe sim run-sim window run-window window-smoke smoke screens fonts check-fonts test c-test py-test validate install-check clean
+
+all: host-probe check-fonts test smoke $(WINDOW_CHECK) validate
 
 host-probe:
 	mkdir -p $(OUT)/host
@@ -40,6 +48,25 @@ $(OUT)/host/family-tv-sim: $(SIM_SRC) $(CORE_HDR)
 
 run-sim: sim
 	$(OUT)/host/family-tv-sim --demo-received
+
+window: $(OUT)/host/family-tv-window
+
+$(OUT)/host/family-tv-window: $(SIM_SRC) sim/frontend_window.c $(CORE_HDR)
+	@if [ -z "$(SDL_CONFIG)" ]; then echo "SDL2 not found: brew install sdl2"; exit 1; fi
+	mkdir -p $(OUT)/host
+	$(CC) $(CFLAGS) $(WARN) $(INC) $(SDL_CFLAGS) -DFT_WINDOW -o $@ $(SIM_SRC) sim/frontend_window.c $(SDL_LIBS)
+
+# Play the pixel version in a window: arrows, Enter = OK, Backspace/Esc = Back, q = quit.
+run-window: window
+	$(OUT)/host/family-tv-window --demo-received
+
+# Headless check of the window build: scripted keys, SDL dummy video driver, last frame dumped.
+window-smoke: window
+	rm -rf $(OUT)/wsmoke $(OUT)/wsmoke.ppm
+	SDL_VIDEODRIVER=dummy $(OUT)/host/family-tv-window --demo-received --data $(OUT)/wsmoke \
+	  --dump-frame $(OUT)/wsmoke.ppm --keys R,R,OK,OK,OK,W90
+	python3 -I tools/ppm2png.py $(OUT) $(OUT)/wsmoke.ppm > /dev/null
+	@echo "window-smoke: OK ($(OUT)/wsmoke.png)"
 
 # Scripted walks with throwaway data folders (never the interactive out/simdata).
 # 1: Football -> SportyTV fallback, then Games -> Racer start/pause/exit.
