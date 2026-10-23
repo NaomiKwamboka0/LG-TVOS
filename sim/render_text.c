@@ -37,10 +37,33 @@ static void footer(const char *keys, const char *status)
     fflush(stdout);
 }
 
+static void render_pin(const shell *s)
+{
+    int i;
+    printf("      ");
+    for (i = 0; i < SHELL_PIN_DIGITS; i++) {
+        if (i == s->pin_pos)
+            printf(" " INV "[ %c ]" RST, s->pin_digits[i]);
+        else
+            printf(" [ * ]");
+    }
+    printf("\n      ");
+    for (i = 0; i < SHELL_PIN_DIGITS; i++)
+        printf(i == s->pin_pos ? "   ^  " : "      ");
+    printf("\n");
+    footer(tr(s->cfg.lang, STR_HELP_PIN), s->status);
+}
+
 void render_shell(const shell *s)
 {
-    const char *profile = s->cfg.profile == PROFILE_PARENT ? "Parent" : "Child";
+    ft_lang L = s->cfg.lang;
+    const char *profile = tr(L, s->cfg.profile == PROFILE_PARENT ? STR_PARENT : STR_CHILD);
     header(shell_screen_title(s), profile);
+
+    if (s->screen == SCR_PIN) {
+        render_pin(s);
+        return;
+    }
 
     if (s->screen == SCR_HOME) {
         int row, c;
@@ -56,14 +79,14 @@ void render_shell(const shell *s)
                 if (i < s->ntiles) {
                     int on = i == s->focus;
                     printf("  |%s%s %-20s%s|", on ? INV : "", on ? ">" : " ",
-                           shell_tile_labels[s->tiles[i]], on ? RST : "");
+                           shell_tile_label(s, s->tiles[i]), on ? RST : "");
                 }
             }
             printf("\n");
             for (c = 0; c < SHELL_COLS; c++) {
                 int i = row * SHELL_COLS + c;
                 if (i < s->ntiles)
-                    printf("  |  %-20s|", shell_tile_hints[s->tiles[i]]);
+                    printf("  |  %-20.20s|", shell_tile_hint(s, s->tiles[i]));
             }
             printf("\n");
             for (c = 0; c < SHELL_COLS; c++) {
@@ -73,18 +96,21 @@ void render_shell(const shell *s)
             }
             printf("\n");
         }
-        footer("Arrows: move   OK: choose   Home: main menu", s->status);
+        footer(tr(L, STR_HELP_HOME), s->status);
         return;
     }
 
     {
-        const char *labels[SHELL_MAX_ITEMS];
+        char labels[SHELL_MAX_ITEMS][SHELL_LABEL_MAX];
         int n = shell_list(s, labels, SHELL_MAX_ITEMS), i;
+        if (s->screen == SCR_GAMES && s->cfg.profile == PROFILE_CHILD && s->cfg.child_limit_s != 0)
+            printf("  %s: %u %s\n\n", tr(L, STR_TIME_LEFT),
+                   (unsigned)((s->cfg.play_remaining_s + 59) / 60), tr(L, STR_MINUTES));
         for (i = 0; i < n; i++) {
             int on = i == s->item;
             printf("  %s%s %s%s\n", on ? INV : "", on ? ">" : " ", labels[i], on ? RST : "");
         }
-        footer("Up/Down: move   OK: choose   Back: return", s->status);
+        footer(tr(L, STR_HELP_LIST), s->status);
     }
 }
 

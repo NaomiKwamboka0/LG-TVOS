@@ -15,18 +15,9 @@
 #include "session.h"
 #include "shell.h"
 
-static int failures, checks;
+#include "check.h"
 
-#define CHECK(cond)                                                          \
-    do {                                                                     \
-        checks++;                                                            \
-        if (!(cond)) {                                                       \
-            failures++;                                                      \
-            fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond);  \
-        }                                                                    \
-    } while (0)
-
-#define TMP "out/testdata"
+int failures, checks;
 
 /* ---- Family Racer --------------------------------------------------- */
 
@@ -301,7 +292,7 @@ static void corrupt_byte(const char *path, long off)
     fclose(f);
 }
 
-static void clean(const char *p)
+void test_clean_save(const char *p)
 {
     char b[256];
     unlink(p);
@@ -315,7 +306,7 @@ static void test_save_roundtrip_and_recovery(void)
     const char *p = TMP "/t.sav";
     char data[16] = "", bad[64];
     uint32_t len = 0;
-    clean(p);
+    test_clean_save(p);
     CHECK(ft_save_read(p, "TEST", 1, data, sizeof data, &len) == FT_SAVE_NONE);
     CHECK(ft_save_write(p, "TEST", 1, "first", 6) == FT_SAVE_OK);
     CHECK(ft_save_write(p, "TEST", 1, "second", 7) == FT_SAVE_OK);
@@ -331,7 +322,7 @@ static void test_save_roundtrip_and_recovery(void)
     /* A later save must not demote anything damaged into .prev. */
     CHECK(ft_save_write(p, "TEST", 1, "third", 6) == FT_SAVE_OK);
     CHECK(ft_save_read(p, "TEST", 1, data, sizeof data, &len) == FT_SAVE_OK && strcmp(data, "third") == 0);
-    clean(p);
+    test_clean_save(p);
 }
 
 static void test_save_rejects_wrong_schema_truncation_and_size(void)
@@ -340,10 +331,10 @@ static void test_save_rejects_wrong_schema_truncation_and_size(void)
     char data[16];
     uint32_t len;
     FILE *f;
-    clean(p);
+    test_clean_save(p);
     CHECK(ft_save_write(p, "TEST", 1, "abc", 4) == FT_SAVE_OK);
     CHECK(ft_save_read(p, "TEST", 2, data, sizeof data, &len) == FT_SAVE_CORRUPT);
-    clean(p);
+    test_clean_save(p);
     CHECK(ft_save_write(p, "TEST", 1, "abc", 4) == FT_SAVE_OK);
     f = fopen(p, "r+b");
     if (f) {
@@ -352,16 +343,17 @@ static void test_save_rejects_wrong_schema_truncation_and_size(void)
     }
     CHECK(ft_save_read(p, "TEST", 1, data, sizeof data, &len) == FT_SAVE_CORRUPT);
     CHECK(ft_save_write(p, "TEST", 1, data, FT_SAVE_MAX + 1) == FT_SAVE_TOO_BIG);
-    clean(p);
+    test_clean_save(p);
 }
 
 /* ---- Home shell ----------------------------------------------------- */
 
+static int64_t fixed_wall(void) { return 1792771200; /* 2026-10-23T16:00:00Z */ }
+static uint64_t fixed_ms(void) { return 1000; }
+
 static void base_config(shell_config *c)
 {
     memset(c, 0, sizeof *c);
-    c->profile = PROFILE_PARENT;
-    c->child_games = 1u << GAME_RACER;
     strcpy(c->favs[0].name, "Citizen TV");
     c->favs[0].received = -1;
     strcpy(c->favs[1].name, "SportyTV");
@@ -384,12 +376,16 @@ static void test_shell_hides_untested_apps(void)
 
 static void test_shell_dad_reaches_favourite_in_two_choices(void)
 {
+    const char *path = TMP "/dad-settings.sav";
     shell_config c;
     shell s;
+    session ss;
     shell_action a;
     int ok_presses = 0;
+    test_clean_save(path);
     base_config(&c);
     shell_init(&s, &c);
+    session_init_with_clock(&ss, &s, path, fixed_ms, fixed_wall);
     shell_key(&s, FT_RIGHT); /* focus Football */
     a = shell_key(&s, FT_OK);
     ok_presses++;
@@ -399,7 +395,7 @@ static void test_shell_dad_reaches_favourite_in_two_choices(void)
     CHECK(a.act == ACT_TUNE_FAVOURITE && a.arg == 1); /* SportyTV, the only received one */
     CHECK(ok_presses <= 2);
 
-    session_dispatch(&s, a);
+    session_dispatch(&ss, &s, a);
     CHECK(strstr(s.status, "channel list") != NULL); /* sim cannot tune directly: fallback */
 }
 
@@ -407,7 +403,7 @@ static void test_shell_unreceived_channels_not_shortcuts(void)
 {
     shell_config c;
     shell s;
-    const char *labels[SHELL_MAX_ITEMS];
+    char labels[SHELL_MAX_ITEMS][SHELL_LABEL_MAX];
     int n;
     base_config(&c);
     c.favs[1].received = 0;
@@ -423,10 +419,11 @@ static void test_shell_child_profile_limits(void)
 {
     shell_config c;
     shell s;
-    const char *labels[SHELL_MAX_ITEMS];
-    int n, i, has_search = 0;
+    char labels[SHELL_MAX_ITEMS][SHELL_LABEL_MAX];
+    int n, i, has_search = 0, has_settings = 0;
     base_config(&c);
     c.profile = PROFILE_CHILD;
+    c.child_games = 1u << GAME_RACER;
     shell_init(&s, &c);
     shell_key(&s, FT_RIGHT);
     shell_key(&s, FT_RIGHT); /* Games */
@@ -435,16 +432,17 @@ static void test_shell_child_profile_limits(void)
     CHECK(n == 1 && strcmp(labels[0], "Family Racer") == 0);
     shell_key(&s, FT_BACK);
     CHECK(s.screen == SCR_HOME);
-    shell_key(&s, FT_DOWN); /* More */
+    shell_key(&s, FT_DOWN); /* short last row: lands on More */
     shell_key(&s, FT_OK);
     CHECK(s.screen == SCR_MORE);
     n = shell_list(&s, labels, SHELL_MAX_ITEMS);
-    for (i = 0; i < n; i++)
+    for (i = 0; i < n; i++) {
         if (strstr(labels[i], "search"))
             has_search = 1;
-    CHECK(!has_search);
-    session_dispatch(&s, shell_key(&s, FT_OK)); /* try to switch to parent */
-    CHECK(s.cfg.profile == PROFILE_CHILD);
+        if (strstr(labels[i], "settings"))
+            has_settings = 1;
+    }
+    CHECK(!has_search && !has_settings);
 }
 
 static void test_shell_every_tile_reachable(void)
@@ -463,6 +461,17 @@ static void test_shell_every_tile_reachable(void)
     }
     for (i = 0; i < TILE_COUNT; i++)
         CHECK(seen[i]);
+}
+
+static void test_shell_kiswahili_labels(void)
+{
+    shell_config c;
+    shell s;
+    base_config(&c);
+    c.lang = LANG_SW;
+    shell_init(&s, &c);
+    CHECK(strcmp(shell_tile_label(&s, TILE_GAMES), "Michezo") == 0);
+    CHECK(strcmp(shell_screen_title(&s), "TV ya Familia") == 0);
 }
 
 int main(void)
@@ -490,6 +499,8 @@ int main(void)
     test_shell_unreceived_channels_not_shortcuts();
     test_shell_child_profile_limits();
     test_shell_every_tile_reachable();
+    test_shell_kiswahili_labels();
+    run_service_tests();
 
     printf("%d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;
