@@ -34,11 +34,21 @@ All 56 acceptance tests (H, U, G, N, F, S, P, K) are NOT RUN on the TV.
 - `games/`: Family Racer, Penalty Cup, Block Garden (original games, remote-only, seeded and
   deterministic) and a checksummed save service with last-known-good fallback.
 - `sim/`: terminal simulator. `make run-sim`. All behaviour is labelled [SIMULATOR].
-- `tests/unit/test_core.c`: 259 host checks (ASan/UBSan). Host logic for G01-G05, F03, U01,
-  U07-U09, R06. These are not TV results; the TV tests stay NOT RUN.
+- `services/pin.*`: parent PIN stored only as a salted Argon2id verifier (vendored Monocypher
+  4.0.2, see `third_party/monocypher/README.md`). 3 free tries, then 30 s doubling to a 5 min
+  lockout; the failure count survives restarts. Argon2 cost must be re-tuned on the TV.
+- `services/playtime.*`: children's daily allowance counted on a monotonic clock; resets at
+  Nairobi midnight only while the TV clock is trusted (not before 2026, not moved backwards).
+  Known limit: moving the TV clock forward can trigger an early reset.
+- `services/settings.*` + `services/session.*`: Parent settings behind the PIN (language, daily
+  limit, +15 min, reset today, allowed games, change PIN). Child profile survives restarts.
+- `services/i18n.*`: optional Kiswahili labels (draft wording for the family to correct).
+- Tests: 383 host checks (ASan/UBSan) plus two scripted simulator walks. Host logic for G01-G05,
+  F03, S01, U01, U07-U09, R06. These are not TV results; the TV tests stay NOT RUN.
 
 ## Next
 
 1. Owner: Work packet A (p.31) using the normal remote — channel list/order, Citizen/KTN/SportyTV reception, YouTube/Netflix status, stock timings.
-2. Host: PIN-protected parent profile, play-time limits, Kiswahili labels, framebuffer renderer
-   behind an interface (selected only after gate I05).
+2. Family: review the Kiswahili wording in `services/i18n.c`.
+3. Host: translate the in-game screens; fixtures cache for Football (optional, offline-first);
+   renderer interface for the TV, with the backend chosen only after gate I05.
