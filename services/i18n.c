@@ -114,6 +114,19 @@ static const char *const TABLE[STR_COUNT][LANG_COUNT] = {
     [STR_PALETTE_HELP] = {"Left/Right: choose tile   OK: done", "Kushoto/Kulia: chagua kigae   OK: tayari"},
     [STR_UNSAVED] = {"not saved yet", "bado haijahifadhiwa"},
     [STR_SAVED_STATE] = {"saved", "imehifadhiwa"},
+    [STR_PIN_HINT] = {"Use Up and Down to choose each number, then press OK",
+                      "Tumia Juu na Chini kuchagua kila nambari, kisha bonyeza OK"},
+    [STR_WATCH_LIVE] = {"Watch live TV", "Tazama TV mubashara"},
+    [STR_SHELF_LIVE] = {"Your aerial channels. No internet needed.", "Chaneli zako za antena. Hakuna haja ya intaneti."},
+    [STR_SHELF_FOOTBALL] = {"Your sports channels in one place.", "Chaneli zako za michezo mahali pamoja."},
+    [STR_SHELF_GAMES] = {"Race, take penalties and build. Plays without internet.",
+                         "Shindana, piga penalti na ujenge. Inachezwa bila intaneti."},
+    [STR_SHELF_MORE] = {"Search, profiles and parent settings.", "Tafuta, wasifu na mipangilio ya mzazi."},
+    [STR_SHELF_APP] = {"Opens the app already on this TV.", "Inafungua programu iliyo kwenye TV hii."},
+    [STR_SHELF_FAV_HINT] = {"Favourite channels appear here once reception is confirmed.",
+                            "Chaneli unazopenda zitaonekana hapa baada ya kuthibitisha zinapatikana."},
+    [STR_DESC_SETTINGS] = {"Changes here are protected by the parent PIN.",
+                           "Mabadiliko hapa yanalindwa na PIN ya mzazi."},
 };
 
 const char *tr(ft_lang lang, ft_str id)

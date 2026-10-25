@@ -1,27 +1,37 @@
 #ifndef FT_THEME_H
 #define FT_THEME_H
 
-/* Colour tokens and safe-area layout for 1280x720 (plan p.14: large labels,
- * high contrast, no animated backgrounds). Focus is always shown by shape
- * (thick border) as well as colour. */
+/* Visual language inspired by Apple TV: dark backdrop, a "top shelf" that
+ * follows focus, glossy rounded tiles that lift when focused, white focused
+ * rows, translucent panels. Our own colours and artwork; no Apple assets or
+ * fonts. Logical 1280x720 (plan p.14). Focus is always shown by size and
+ * shadow as well as colour. */
+
+#include "canvas.h"
 
 #define VIEW_W 1280
 #define VIEW_H 720
-#define VIEW_MARGIN 72 /* keeps text inside typical TV overscan */
+#define VIEW_MARGIN 72 /* keeps content inside typical TV overscan */
 
-#define COL_BG 0xFF142A43u
-#define COL_ROW 0xFF1D3856u
-#define COL_TILE 0xFFE3EAF1u
-#define COL_TILE_FOCUS 0xFFE4F7F2u
-#define COL_FOCUS 0xFF14877Du
-#define COL_TEXT_DARK 0xFF132A43u
-#define COL_TEXT_MUTED 0xFF52637Au
-#define COL_TEXT_LIGHT 0xFFFFFFFFu
-#define COL_TEXT_SOFT 0xFFC3D2E0u
-#define COL_STATUS 0xFF0E6A63u
-#define COL_OVERLAY 0xFF0D1E31u
-#define COL_GOOD 0xFF2E9E5Bu
-#define COL_BAD 0xFFC8413Bu
-#define COL_GOLD 0xFFF2C230u
+#define COL_BG_TOP FT_RGB(0x111827)
+#define COL_BG_BOTTOM FT_RGB(0x05070C)
+#define COL_BG COL_BG_BOTTOM
+
+#define COL_TEXT FT_RGB(0xFFFFFF)
+#define COL_TEXT_2 0xA8EBEBF5u /* secondary */
+#define COL_TEXT_3 0x6BEBEBF5u /* hints */
+
+#define COL_GLASS 0xC21B1E28u      /* translucent dark panel */
+#define COL_GLASS_EDGE 0x29FFFFFFu /* hairline on panels */
+#define COL_ROW 0x1CFFFFFFu        /* resting list row */
+#define COL_FOCUS_BG FT_RGB(0xF4F4F6)
+#define COL_ON_FOCUS FT_RGB(0x15161B)
+#define COL_ON_FOCUS_2 0xB015161Bu
+#define COL_SHADOW 0x9E000000u
+#define COL_DIM 0xA6000000u /* behind modal cards */
+
+#define COL_GOOD FT_RGB(0x31C46C)
+#define COL_BAD FT_RGB(0xFF5B4F)
+#define COL_GOLD FT_RGB(0xFFD24A)
 
 #endif

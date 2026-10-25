@@ -11,6 +11,7 @@ make run-window # play the pixel version in a desktop window (needs: brew instal
 make run-sim    # play the home screen and games in the terminal (demo favourites)
                 # parent settings: More -> Parent settings (you choose the PIN on first use)
 make screens    # draw every screen to docs/screens/*.png (see docs/screens/README.md)
+make bench      # milliseconds per frame for each screen on this computer
 make install-check   # expected to REJECT until runtime/recovery evidence exists
 make target-probe CROSS_CC=...   # blocked until the target ABI is verified (gate I03)
 ```

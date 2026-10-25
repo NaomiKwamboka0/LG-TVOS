@@ -43,15 +43,21 @@ All 56 acceptance tests (H, U, G, N, F, S, P, K) are NOT RUN on the TV.
 - `services/settings.*` + `services/session.*`: Parent settings behind the PIN (language, daily
   limit, +15 min, reset today, allowed games, change PIN). Child profile survives restarts.
 - `services/i18n.*`: optional Kiswahili labels (draft wording for the family to correct).
-- `ui/canvas.*`, `ui/view.*`, `ui/font_data.c`: software 2D renderer at 1280x720 (ADR-02) drawing the
-  home screen, lists, PIN entry and all three games, with Spleen bitmap fonts (BSD-2-Clause). Every
-  draw is clipped to the buffer; views are pure functions of state. `make screens` writes
-  `docs/screens/*.png`. The TV display backend is still unchosen (gate I05).
+- `ui/canvas.*`, `ui/view.*`, `ui/art.*`: software 2D renderer at 1280x720 (ADR-02) with alpha
+  blending, anti-aliased rounded shapes, gradients, soft shadows and anti-aliased kerned text; integer
+  maths only (TV float ABI unknown). Apple TV-inspired look with our own vector artwork and no
+  third-party logos. Views are pure functions of state; every draw is clipped to the buffer.
+  `make screens` writes `docs/screens/*.png`. The TV display backend is still unchosen (gate I05).
+- `ui/font_ui_data.c`: Inter 4.1 (SIL OFL) pre-rendered by `tools/fontbake.c` (stb_truetype plus a GPOS
+  kerning reader) into 74 KB of 4-bit glyphs; the TV never parses font files.
+- `make bench`: milliseconds per frame on the computer (home 1.8, settings 1.3, racer 2.1, penalty 2.8,
+  garden 3.7 on an Apple-silicon Mac). The TV's 1 GHz Cortex-A9 is likely 15-25x slower, so racing may
+  fall short of the 30 fps target (P03) until measured and tuned on the device.
 - `sim/frontend_*.c`: the simulator runs either in the terminal (`make run-sim`) or in a desktop
   window showing the real pixel views (`make run-window`, SDL2 on the computer only; SDL is never
   part of the TV build). Held OK/Back do not repeat. `make window-smoke` checks the window build
   headlessly.
-- Tests: 402 host checks (ASan/UBSan) plus two scripted simulator walks. Host logic for G01-G05,
+- Tests: 411 host checks (ASan/UBSan) plus two scripted simulator walks. Host logic for G01-G05,
   F03, S01, U01, U07-U09, R06. These are not TV results; the TV tests stay NOT RUN.
 
 ## Next
