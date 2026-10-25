@@ -2,8 +2,9 @@
 #define FT_VIEW_H
 
 /* Pixel views of the shell and the three games at logical 1280x720
- * (plan p.14). Pure functions of state: the same state always draws the
- * same pixels, and nothing reads clocks or files. */
+ * (plan p.14), in an Apple TV-inspired style (see theme.h). Pure functions
+ * of state: the same state always draws the same pixels, and nothing reads
+ * clocks or files. */
 
 #include <stdint.h>
 
@@ -21,8 +22,8 @@ void view_racer(ft_canvas *c, const racer *r, const uint32_t best[RACER_LEVELS],
 void view_penalty(ft_canvas *c, const penalty *p, ft_lang lang, const char *status);
 void view_garden(ft_canvas *c, const garden *g, ft_lang lang, const char *status);
 
-/* Layout helpers, exposed for tests. */
-ft_rect view_home_tile_rect(int index);
+/* Layout helpers, exposed for tests (resting positions, before focus lift). */
+ft_rect view_home_tile_rect(const shell *s, int index);
 ft_rect view_list_row_rect(int visible_row);
 ft_rect view_pin_box_rect(int digit);
 
