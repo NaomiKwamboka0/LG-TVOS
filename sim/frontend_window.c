@@ -255,7 +255,7 @@ static void stats(ft_canvas *c, const player_status *ps)
 
 /* Repaints only for a new picture or a visible overlay change: the loop
  * wakes far more often than either happens. */
-static void window_live(const live *l, player *p, const shell *s)
+static void window_live(const live *l, player *p, const shell *s, const channel_list *chs)
 {
     static uint32_t last_sig;
     Uint64 t0 = SDL_GetPerformanceCounter(), t1, t2;
@@ -264,13 +264,13 @@ static void window_live(const live *l, player *p, const shell *s)
     uint32_t sig;
     SDL_DisableScreenSaver(); /* nobody touches the keys while watching */
     sim_clock_text(clock, sizeof clock);
-    sig = view_live_signature(l, player_get(p), s, clock, picture != 0);
+    sig = view_live_signature(l, player_get(p), s, chs, clock, picture != 0);
     if (live_on_screen && picture != PLAYER_NEW_PICTURE && sig == last_sig)
         return;
     t1 = SDL_GetPerformanceCounter();
     if (picture)
         memcpy(pixels, video, sizeof pixels);
-    view_live(&canvas, l, player_get(p), s, clock, picture != 0);
+    view_live(&canvas, l, player_get(p), s, chs, clock, picture != 0);
     t2 = SDL_GetPerformanceCounter();
     if (sim_show_stats) {
         stat_t[0] += t1 - t0;
@@ -297,7 +297,17 @@ static void window_wake(void *ctx)
     }
 }
 
+/* The browser opens on top; the TV window steps aside until the family
+ * comes back to it from the taskbar or Dock. */
+static int window_open_url(const char *url)
+{
+    if (SDL_OpenURL(url) != 0)
+        return -1;
+    SDL_MinimizeWindow(window);
+    return 0;
+}
+
 const sim_frontend frontend_window = {
     "window", window_folders, window_open, window_close, window_poll, window_shell, window_racer, window_penalty,
-    window_garden, window_live, window_wake, window_is_fullscreen
+    window_garden, window_live, window_wake, window_is_fullscreen, window_open_url
 };

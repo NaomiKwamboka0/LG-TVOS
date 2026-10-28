@@ -10,23 +10,42 @@
  * Addresses use the permanent channel ID, not the @handle: handles change,
  * and look-alike handles belong to other channels (@citizentvkenya is
  * Citizen Extra; @KBCChannel1 is a children's channel). Checked with
- * tools/verify-channels.sh on 2026-10-28 22:33 EAT; live then: Citizen,
- * NTV, KTN News, K24, TV47, Inooro. The others stream on a schedule. */
+ * tools/verify-channels.sh on 2026-10-28/29. Kenyan stations live then:
+ * Citizen, NTV, KTN News, K24, TV47, Inooro; the others stream on a
+ * schedule. The world news channels stream around the clock. The sports
+ * channels are the sports bodies' own, streaming real matches and events
+ * for free, mostly on match days. */
 static const struct {
     int number;
     const char *name, *url;
     uint32_t accent;
+    int group;
 } DEFAULTS[] = {
-    {1, "Citizen TV", "https://www.youtube.com/channel/UChBQgieUidXV1CmDxSdRm3g/live", 0xFFD32F2Fu},
-    {2, "NTV Kenya", "https://www.youtube.com/channel/UCqBJ47FjJcl61fmSbcadAVg/live", 0xFFC62828u},
-    {3, "KTN News", "https://www.youtube.com/channel/UCKVsdeoHExltrWMuK0hOWmg/live", 0xFF1565C0u},
-    {4, "K24 TV", "https://www.youtube.com/channel/UCt3SE-Mvs3WwP7UW-PiFdqQ/live", 0xFFE53935u},
-    {5, "KBC Channel 1", "https://www.youtube.com/channel/UCypNjM5hP1qcUqQZe57jNfg/live", 0xFF0D47A1u},
-    {6, "TV47", "https://www.youtube.com/channel/UC_zA9UIWE1fB-jfFk_DBSYw/live", 0xFFEF6C00u},
-    {7, "Inooro TV", "https://www.youtube.com/channel/UCZlNMLTVNxzwB0axilK-rDw/live", 0xFF2E7D32u},
-    {8, "Kameme TV", "https://www.youtube.com/channel/UCd9nkc2XA77NMxBvQz35I2Q/live", 0xFF6A1B9Au},
-    {9, "Ramogi TV", "https://www.youtube.com/channel/UCmKXJ4C59JjVVJ-axXfpJcg/live", 0xFF00838Fu},
-    {10, "Switch TV", "https://www.youtube.com/channel/UCUhrpGr_luwUzVaxiW5Jkhw/live", 0xFFAD1457u},
+    {1, "Citizen TV", "https://www.youtube.com/channel/UChBQgieUidXV1CmDxSdRm3g/live", 0xFFD32F2Fu, CH_TV},
+    {2, "NTV Kenya", "https://www.youtube.com/channel/UCqBJ47FjJcl61fmSbcadAVg/live", 0xFFC62828u, CH_TV},
+    {3, "KTN News", "https://www.youtube.com/channel/UCKVsdeoHExltrWMuK0hOWmg/live", 0xFF1565C0u, CH_TV},
+    {4, "K24 TV", "https://www.youtube.com/channel/UCt3SE-Mvs3WwP7UW-PiFdqQ/live", 0xFFE53935u, CH_TV},
+    {5, "KBC Channel 1", "https://www.youtube.com/channel/UCypNjM5hP1qcUqQZe57jNfg/live", 0xFF0D47A1u, CH_TV},
+    {6, "TV47", "https://www.youtube.com/channel/UC_zA9UIWE1fB-jfFk_DBSYw/live", 0xFFEF6C00u, CH_TV},
+    {7, "Inooro TV", "https://www.youtube.com/channel/UCZlNMLTVNxzwB0axilK-rDw/live", 0xFF2E7D32u, CH_TV},
+    {8, "Kameme TV", "https://www.youtube.com/channel/UCd9nkc2XA77NMxBvQz35I2Q/live", 0xFF6A1B9Au, CH_TV},
+    {9, "Ramogi TV", "https://www.youtube.com/channel/UCmKXJ4C59JjVVJ-axXfpJcg/live", 0xFF00838Fu, CH_TV},
+    {10, "Switch TV", "https://www.youtube.com/channel/UCUhrpGr_luwUzVaxiW5Jkhw/live", 0xFFAD1457u, CH_TV},
+    {11, "Al Jazeera", "https://www.youtube.com/channel/UCNye-wNBqNL5ZzHSJj3l8Bg/live", 0xFFD89B2Bu, CH_TV},
+    {12, "DW News", "https://www.youtube.com/channel/UCknLrEdhRCp1aegoMqRaCZg/live", 0xFF0277BDu, CH_TV},
+    {13, "France 24", "https://www.youtube.com/channel/UCQfwfsi5VrQ8yKZ-UWmAEFg/live", 0xFF00695Cu, CH_TV},
+    {14, "Sky News", "https://www.youtube.com/channel/UCoMdktPbSTixAyNGwb-UYkQ/live", 0xFFB71C1Cu, CH_TV},
+    {101, "FIFA", "https://www.youtube.com/channel/UCpcTrCXblq78GZrTUTLWeBw/live", 0xFF1E3A8Au, CH_SPORTS},
+    {102, "World Rugby", "https://www.youtube.com/channel/UCE28rwYoaV7jvU6GVzdu_GQ/live", 0xFF0F766Eu, CH_SPORTS},
+    {103, "FIBA Basketball", "https://www.youtube.com/channel/UCtInrnU3QbWqFGsdKT1GZtg/live", 0xFFEA580Cu, CH_SPORTS},
+    {104, "Basketball Africa League", "https://www.youtube.com/channel/UCSpFKCdUyrn45S5k1Mz7TNA/live", 0xFFB45309u, CH_SPORTS},
+    {105, "Olympics", "https://www.youtube.com/channel/UCTl3QQTvqHFjurroKxexy2Q/live", 0xFF1D4ED8u, CH_SPORTS},
+    {106, "World Athletics", "https://www.youtube.com/channel/UCQk7fWv15ChjMJLCRVmtApw/live", 0xFFBE123Cu, CH_SPORTS},
+    {107, "Women's Super League", "https://www.youtube.com/channel/UCnQpt1UxLq00NFULxTDHMww/live", 0xFF7C3AEDu, CH_SPORTS},
+    {108, "World Table Tennis", "https://www.youtube.com/channel/UC9ckyA_A3MfXUa0ttxMoIZw/live", 0xFF0891B2u, CH_SPORTS},
+    {109, "Volleyball World", "https://www.youtube.com/channel/UCNMg6XDhRZI2QzL4pWOvP_w/live", 0xFFCA8A04u, CH_SPORTS},
+    {110, "DAZN Boxing", "https://www.youtube.com/channel/UCurvRE5fGcdUgCYWgh-BDsg/live", 0xFF374151u, CH_SPORTS},
+    {111, "Red Bull", "https://www.youtube.com/channel/UCblfuW_4rakIf2h6aqANefA/live", 0xFF1E40AFu, CH_SPORTS},
 };
 
 /* Card colours for lines that give none. */
@@ -53,8 +72,18 @@ void channels_defaults(channel_list *l)
         snprintf(c->name, sizeof c->name, "%s", DEFAULTS[i].name);
         snprintf(c->url, sizeof c->url, "%s", DEFAULTS[i].url);
         c->accent = DEFAULTS[i].accent;
+        c->group = DEFAULTS[i].group;
     }
     sort_by_number(l);
+}
+
+void channels_group(const channel_list *all, ch_group g, channel_list *out)
+{
+    int i;
+    memset(out, 0, sizeof *out);
+    for (i = 0; i < all->n; i++)
+        if (all->ch[i].group == (int)g)
+            out->ch[out->n++] = all->ch[i];
 }
 
 int channels_find_number(const channel_list *l, int number)
@@ -160,12 +189,12 @@ static int parse_colour(const char *s, const char *e, uint32_t *out)
 /* Returns NULL on success, or why the line was skipped. */
 static const char *parse_line(channel_list *l, const char *s, const char *e, int *renamed)
 {
-    const char *f[5], *fe[5];
+    const char *f[6], *fe[6];
     int nf = 0, number;
     const char *p = s;
     channel c;
 
-    while (nf < 5) {
+    while (nf < 6) {
         const char *bar = p;
         while (bar < e && *bar != '|')
             bar++;
@@ -177,8 +206,8 @@ static const char *parse_line(channel_list *l, const char *s, const char *e, int
             break;
         p = bar + 1;
     }
-    if (nf < 3 || nf > 4)
-        return "expected number|name|url|#RRGGBB";
+    if (nf < 3 || nf > 5)
+        return "expected number|name|url|#RRGGBB|group";
     if (parse_number(f[0], fe[0], &number) != 0)
         return "channel number must be 1-999";
     if (channels_find_number(l, number) >= 0)
@@ -188,19 +217,23 @@ static const char *parse_line(channel_list *l, const char *s, const char *e, int
     if (!valid_url(f[2], fe[2]))
         return "address must start with https:// and have no spaces";
     if (l->n >= CH_MAX)
-        return "too many channels (40 at most)";
+        return "too many channels (60 at most)";
 
     memset(&c, 0, sizeof c);
     c.number = number;
     *renamed = copy_name(c.name, sizeof c.name, f[1], fe[1]);
     memcpy(c.url, f[2], (size_t)(fe[2] - f[2]));
     c.url[fe[2] - f[2]] = '\0';
-    if (nf == 4 && f[3] != fe[3]) {
+    if (nf >= 4 && f[3] != fe[3]) {
         if (parse_colour(f[3], fe[3], &c.accent) != 0)
             return "colour must look like #1E88E5";
     } else {
         c.accent = PALETTE[l->n % (int)(sizeof PALETTE / sizeof PALETTE[0])];
     }
+    if (nf == 5 && fe[4] - f[4] == 6 && strncmp(f[4], "sports", 6) == 0)
+        c.group = CH_SPORTS;
+    else if (nf == 5 && f[4] != fe[4])
+        return "group must be empty or sports";
     l->ch[l->n++] = c;
     return NULL;
 }

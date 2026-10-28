@@ -4,15 +4,16 @@
 /* The family's channel line-up: Kenyan stations' YouTube live streams.
  * Parents can edit channels.txt (one channel per line):
  *
- *     number|name|url|#RRGGBB
+ *     number|name|url|#RRGGBB|group
  *
- * '#' starts a comment line; the colour is optional. Lines that do not
- * parse are skipped with a warning; the rest still load. */
+ * '#' starts a comment line; the colour and group are optional. The group
+ * "sports" puts a channel on the Sports page instead of the channel list.
+ * Lines that do not parse are skipped with a warning; the rest still load. */
 
 #include <stddef.h>
 #include <stdint.h>
 
-#define CH_MAX 40
+#define CH_MAX 60
 #define CH_NAME_MAX 32
 #define CH_URL_MAX 200
 #define CH_NUMBER_MAX 999
@@ -23,7 +24,10 @@ typedef struct {
     char name[CH_NAME_MAX]; /* ASCII only: the fonts have no other glyphs */
     char url[CH_URL_MAX];   /* http(s) only */
     uint32_t accent;        /* 0xFFRRGGBB card colour */
+    int group;              /* ch_group */
 } channel;
+
+typedef enum { CH_TV, CH_SPORTS } ch_group;
 
 typedef struct {
     channel ch[CH_MAX]; /* sorted by number */
@@ -40,5 +44,7 @@ int channels_parse(channel_list *l, const char *text, size_t len, char *warn, si
 int channels_load(channel_list *l, const char *const paths[], int npaths, char *warn, size_t warnn);
 /* Index of the channel with this number, or -1. */
 int channels_find_number(const channel_list *l, int number);
+/* Copies the channels of one group, keeping their order. */
+void channels_group(const channel_list *all, ch_group g, channel_list *out);
 
 #endif

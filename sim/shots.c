@@ -48,7 +48,12 @@ static void config(shell_config *c, ft_lang lang, profile_role role)
     c->profile = role;
     c->child_games = 0x7;
     c->quality = 1;
-    channels_defaults(&c->channels);
+    {
+        static channel_list all;
+        channels_defaults(&all);
+        channels_group(&all, CH_TV, &c->channels);
+        channels_group(&all, CH_SPORTS, &c->sports);
+    }
 }
 
 static void shell_shots(void)
@@ -110,6 +115,31 @@ static void shell_shots(void)
     s.top = TAB_FOR_YOU;
     view_shell(&canvas, &s, "20:01");
     save("08-home-kiswahili");
+
+    /* Sports: example answers (match titles as the channels wrote them). */
+    config(&c, LANG_EN, PROFILE_PARENT);
+    shell_init(&s, &c);
+    s.cfg.sport[1].state = SPORT_LIVE;
+    snprintf(s.cfg.sport[1].title, sizeof s.cfg.sport[1].title, "Australia v Hong Kong China | Rugby World Cup 2027");
+    s.cfg.sport[7].state = SPORT_LIVE;
+    snprintf(s.cfg.sport[7].title, sizeof s.cfg.sport[7].title, "T1 | Day 2 | WTT Feeder Chennai 2026");
+    s.cfg.sport[2].state = SPORT_UPCOMING;
+    snprintf(s.cfg.sport[2].title, sizeof s.cfg.sport[2].title, "Venezuela v Colombia | FIBA U16 Women's AmeriCup");
+    s.cfg.sport[6].state = SPORT_UPCOMING;
+    snprintf(s.cfg.sport[6].title, sizeof s.cfg.sport[6].title, "Charlton Athletic v Chelsea | Barclays WSL");
+    s.cfg.sport[0].state = SPORT_CHECKING;
+    s.row = 2;
+    view_shell(&canvas, &s, "20:01");
+    save("21-sports-banner");
+    s.screen = SCR_SPORTS;
+    s.item = 1;
+    view_shell(&canvas, &s, "20:01");
+    save("22-sports-page");
+    s.screen = SCR_HOME;
+    s.row = 3;
+    s.col[3] = 1;
+    view_shell(&canvas, &s, "20:01");
+    save("23-netflix-tile");
 }
 
 /* Puts the stub's picture of channel ch on the canvas; returns 1. */
@@ -140,26 +170,26 @@ static void live_shots(void)
     shell_init(&s, &c);
 
     live_init(&l, c.channels.n, 0, 70);
-    view_live(&canvas, &l, player_get(p), &s, "20:01", picture(p, &s, 0));
+    view_live(&canvas, &l, player_get(p), &s, &s.cfg.channels, "20:01", picture(p, &s, 0));
     save("09-live-banner");
 
     l.banner_ms = 0;
     l.panel_open = 1;
     l.panel_item = 3;
-    view_live(&canvas, &l, player_get(p), &s, "20:01", picture(p, &s, 0));
+    view_live(&canvas, &l, player_get(p), &s, &s.cfg.channels, "20:01", picture(p, &s, 0));
     save("10-live-channel-list");
 
     live_init(&l, c.channels.n, 1, 70);
     l.banner_ms = 0;
     l.volume_ms = 1000;
     l.volume = 45;
-    view_live(&canvas, &l, player_get(p), &s, "20:01", picture(p, &s, 1));
+    view_live(&canvas, &l, player_get(p), &s, &s.cfg.channels, "20:01", picture(p, &s, 1));
     save("11-live-volume");
 
     live_init(&l, c.channels.n, 2, 70);
     l.anim_ms = 330;
     player_open(p, c.channels.ch[2].url);
-    view_live(&canvas, &l, player_get(p), &s, "20:01", 0);
+    view_live(&canvas, &l, player_get(p), &s, &s.cfg.channels, "20:01", 0);
     save("12-live-connecting");
 
     live_init(&l, c.channels.n, 4, 70);
@@ -167,7 +197,7 @@ static void live_shots(void)
     player_open(p, "https://stub.invalid/not-live");
     player_pump(p, 0);
     player_pump(p, 2000);
-    view_live(&canvas, &l, player_get(p), &s, "20:01", 0);
+    view_live(&canvas, &l, player_get(p), &s, &s.cfg.channels, "20:01", 0);
     save("13-live-not-live");
 
     config(&c, LANG_SW, PROFILE_PARENT);
@@ -175,7 +205,7 @@ static void live_shots(void)
     player_open(p, "https://stub.invalid/offline");
     player_pump(p, 0);
     player_pump(p, 2000);
-    view_live(&canvas, &l, player_get(p), &s, "20:01", 0);
+    view_live(&canvas, &l, player_get(p), &s, &s.cfg.channels, "20:01", 0);
     save("14-live-offline-kiswahili");
     player_destroy(p);
 }

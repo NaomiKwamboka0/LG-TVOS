@@ -145,7 +145,12 @@ static void base(shell_config *cfg)
 {
     memset(cfg, 0, sizeof *cfg);
     cfg->child_games = 0x7;
-    channels_defaults(&cfg->channels);
+    {
+        static channel_list all;
+        channels_defaults(&all);
+        channels_group(&all, CH_TV, &cfg->channels);
+        channels_group(&all, CH_SPORTS, &cfg->sports);
+    }
 }
 
 static void test_home_focus_grows_card(void)
@@ -204,19 +209,19 @@ static void test_live_banner_comes_and_goes(void)
     ps.video_h = 480;
     live_init(&l, cfg.channels.n, 0, 50);
     canvas_clear(&c, 0xFF808080u);
-    view_live(&c, &l, &ps, &s, "20:01", 1);
+    view_live(&c, &l, &ps, &s, &s.cfg.channels, "20:01", 1);
     CHECK(canvas_get(&c, 4, 710) != 0xFF808080u); /* banner shade */
     CHECK(canvas_get(&c, 640, 100) == 0xFF808080u); /* picture untouched above */
     l.banner_ms = 0;
     canvas_clear(&c, 0xFF808080u);
-    view_live(&c, &l, &ps, &s, "20:01", 1);
+    view_live(&c, &l, &ps, &s, &s.cfg.channels, "20:01", 1);
     CHECK(canvas_get(&c, 4, 710) == 0xFF808080u);
     l.volume_ms = 1;
-    view_live(&c, &l, &ps, &s, "20:01", 1);
+    view_live(&c, &l, &ps, &s, &s.cfg.channels, "20:01", 1);
     CHECK(canvas_get(&c, VIEW_W - VIEW_MARGIN - 170, 70) != 0xFF808080u);
     l.panel_open = 1;
     l.panel_item = cfg.channels.n - 1;
-    view_live(&c, &l, &ps, &s, "20:01", 1);
+    view_live(&c, &l, &ps, &s, &s.cfg.channels, "20:01", 1);
     CHECK(canvas_get(&c, view_live_panel_row_rect(7).x + 300, view_live_panel_row_rect(7).y + 4) == COL_FOCUS_BG);
 }
 
@@ -271,7 +276,7 @@ static void test_all_views_all_states(void)
         base(&cfg);
         cfg.lang = (ft_lang)lang;
         cfg.channels.n = lang ? cfg.channels.n : 0; /* also cover "no channels" */
-        for (scr = SCR_HOME; scr <= SCR_PIN; scr++)
+        for (scr = SCR_HOME; scr <= SCR_SPORTS; scr++)
             for (f = 0; f < 3 * TAB_COUNT; f++) {
                 shell_init(&s, &cfg);
                 s.screen = (shell_screen)scr;
@@ -301,7 +306,7 @@ static void test_all_views_all_states(void)
                     l.shown = f == 2 ? (l.current + 1) % cfg.channels.n : l.current;
                     l.volume_ms = f;
                     l.anim_ms = (uint32_t)(e * 97);
-                    view_live(&c, &l, &ps, &s, f ? "20:01" : NULL, f & 2);
+                    view_live(&c, &l, &ps, &s, &s.cfg.channels, f ? "20:01" : NULL, f & 2);
                 }
         for (st = RACER_START; st <= RACER_EXITED; st++) {
             racer_init(&r, 3, RACER_HARD, st & 1);

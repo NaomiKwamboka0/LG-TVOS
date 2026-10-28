@@ -30,12 +30,15 @@ typedef struct {
     void (*racer)(const racer *r, const uint32_t best[RACER_LEVELS], ft_lang lang, const char *status);
     void (*penalty)(const penalty *p, ft_lang lang, const char *status);
     void (*garden)(const garden *g, ft_lang lang, const char *status);
-    /* Draws the newest picture from p with the live TV overlays. */
-    void (*live)(const live *l, player *p, const shell *s);
+    /* Draws the newest picture from p with the live TV overlays; chs is
+     * the list being watched (channels or sports). */
+    void (*live)(const live *l, player *p, const shell *s, const channel_list *chs);
     /* Thread-safe: makes a waiting poll() return FT_NONE now. May be NULL. */
     void (*wake)(void *ctx);
     /* 1 while the window fills the screen (F11 toggles it). */
     int (*is_fullscreen)(void);
+    /* Opens an address in the web browser (and gets out of its way). 0 = ok. */
+    int (*open_url)(const char *url);
 } sim_frontend;
 
 extern const sim_frontend frontend_text;

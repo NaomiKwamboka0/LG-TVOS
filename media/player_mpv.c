@@ -17,6 +17,7 @@
 #define LOG_KEEP 6000 /* recent messages, for player_classify */
 
 enum { OBS_CACHE_PAUSE = 1, OBS_VIDEO_H };
+#define PROBE_REPLY_BASE 1000 /* reply_userdata of probes: base + tag */
 
 typedef struct {
     player base;
@@ -149,6 +150,73 @@ static void on_end(mpv_player *m, const mpv_event_end_file *e)
     }
 }
 
+/* yt-dlp through mpv's own "subprocess" command: no process code of our
+ * own, and on Windows mpv starts it without a console window. */
+static int mpv_probe(player *p, int tag, const char *page_url, const char *print_format, int items)
+{
+    mpv_player *m = (mpv_player *)p;
+    char range[16];
+    const char *argv[10];
+    mpv_node args[10], vals[4], cmd;
+    mpv_node_list arg_list, map;
+    char *keys[4] = {"name", "args", "capture_stdout", "playback_only"};
+    int n = 0, i;
+    snprintf(range, sizeof range, "1:%d", items);
+    argv[n++] = m->cfg.ytdl_path ? m->cfg.ytdl_path : "yt-dlp";
+    argv[n++] = "--ignore-config";
+    argv[n++] = "--flat-playlist";
+    argv[n++] = "--playlist-items";
+    argv[n++] = range;
+    argv[n++] = "--socket-timeout";
+    argv[n++] = "15";
+    argv[n++] = "--print";
+    argv[n++] = print_format;
+    argv[n++] = page_url;
+    for (i = 0; i < n; i++) {
+        args[i].format = MPV_FORMAT_STRING;
+        args[i].u.string = (char *)argv[i];
+    }
+    arg_list.num = n;
+    arg_list.values = args;
+    arg_list.keys = NULL;
+    vals[0].format = MPV_FORMAT_STRING;
+    vals[0].u.string = "subprocess";
+    vals[1].format = MPV_FORMAT_NODE_ARRAY;
+    vals[1].u.list = &arg_list;
+    vals[2].format = MPV_FORMAT_FLAG;
+    vals[2].u.flag = 1;
+    vals[3].format = MPV_FORMAT_FLAG;
+    vals[3].u.flag = 0;
+    map.num = 4;
+    map.values = vals;
+    map.keys = keys;
+    cmd.format = MPV_FORMAT_NODE_MAP;
+    cmd.u.list = &map;
+    return mpv_command_node_async(m->mpv, PROBE_REPLY_BASE + (uint64_t)tag, &cmd) < 0 ? -1 : 0;
+}
+
+static void on_probe_reply(mpv_player *m, mpv_event *e)
+{
+    int tag = (int)(e->reply_userdata - PROBE_REPLY_BASE);
+    mpv_node *res = &((mpv_event_command *)e->data)->result;
+    int i;
+    if (e->error >= 0 && res->format == MPV_FORMAT_NODE_MAP)
+        for (i = 0; i < res->u.list->num; i++) {
+            mpv_node *v = &res->u.list->values[i];
+            if (strcmp(res->u.list->keys[i], "stdout") != 0)
+                continue;
+            if (v->format == MPV_FORMAT_BYTE_ARRAY) {
+                player_probe_done(&m->base, tag, v->u.ba->size > 0, (const char *)v->u.ba->data, v->u.ba->size);
+                return;
+            }
+            if (v->format == MPV_FORMAT_STRING) {
+                player_probe_done(&m->base, tag, v->u.string[0] != '\0', v->u.string, strlen(v->u.string));
+                return;
+            }
+        }
+    player_probe_done(&m->base, tag, 0, "", 0);
+}
+
 static void mpv_pump(player *p, uint64_t now_ms)
 {
     mpv_player *m = (mpv_player *)p;
@@ -177,6 +245,10 @@ static void mpv_pump(player *p, uint64_t now_ms)
             break;
         case MPV_EVENT_END_FILE:
             on_end(m, (mpv_event_end_file *)e->data);
+            break;
+        case MPV_EVENT_COMMAND_REPLY:
+            if (e->reply_userdata >= PROBE_REPLY_BASE)
+                on_probe_reply(m, e);
             break;
         case MPV_EVENT_PROPERTY_CHANGE: {
             mpv_event_property *prop = (mpv_event_property *)e->data;
@@ -232,7 +304,8 @@ static int mpv_render(player *p, uint32_t *px, int w, int h, int stride)
     return fresh ? PLAYER_NEW_PICTURE : m->have_frame ? PLAYER_SAME_PICTURE : 0;
 }
 
-static const player_ops MPV_OPS = {mpv_destroy_player, mpv_open, mpv_stop, mpv_volume, mpv_pump, mpv_render};
+static const player_ops MPV_OPS = {mpv_destroy_player, mpv_open, mpv_stop, mpv_volume, mpv_pump, mpv_render,
+                                   mpv_probe};
 
 static void set(mpv_handle *mpv, const char *name, const char *value)
 {

@@ -53,6 +53,35 @@ int player_render(player *p, uint32_t *px, int w, int h, int stride)
     return p->ops->render(p, px, w, h, stride);
 }
 
+int player_probe(player *p, int tag, const char *page_url, const char *print_format, int items)
+{
+    return p->ops->probe ? p->ops->probe(p, tag, page_url, print_format, items) : -1;
+}
+
+void player_probe_done(player *p, int tag, int ok, const char *out, size_t len)
+{
+    player_probe_result *r;
+    if (p->ndone >= PROBE_QUEUE)
+        return;
+    r = &p->done[p->ndone++];
+    r->tag = tag;
+    r->ok = ok;
+    if (len >= sizeof r->out)
+        len = sizeof r->out - 1;
+    memcpy(r->out, out, len);
+    r->out[len] = '\0';
+}
+
+int player_probe_next(player *p, player_probe_result *r)
+{
+    if (p->ndone == 0)
+        return 0;
+    *r = p->done[0];
+    memmove(p->done, p->done + 1, (size_t)(p->ndone - 1) * sizeof p->done[0]);
+    p->ndone--;
+    return 1;
+}
+
 void player_fail(player *p, player_error e, const char *detail)
 {
     size_t i, n = 0;
@@ -81,7 +110,7 @@ void player_format(int max_height, char *out, unsigned n)
      * "best" finds nothing. 720p is only offered at 60 fps, so the HD
      * choice drops the 30 fps cap rather than quietly falling to 480p. */
     if (max_height >= 720)
-        snprintf(out, n, "bv*[height<=?720]+ba/b[height<=?720]/wv*+ba/w");
+        snprintf(out, n, "bv*[height<=?%d]+ba/b[height<=?%d]/wv*+ba/w", max_height, max_height);
     else
         snprintf(out, n, "bv*[height<=?%d][fps<=?30]+ba/b[height<=?%d][fps<=?30]/"
                          "bv*[height<=?%d]+ba/b[height<=?%d]/wv*+ba/w",

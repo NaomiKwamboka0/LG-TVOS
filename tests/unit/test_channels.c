@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "channels.h"
+#include "sports.h"
 
 #include "check.h"
 
@@ -126,8 +127,52 @@ static void test_channels_asset_matches_defaults(void)
     CHECK(d.n > 0 && memcmp(&a, &d, sizeof a) == 0);
 }
 
+static void test_channels_groups(void)
+{
+    channel_list all, tv, sports;
+    char warn[160];
+    CHECK(parse(&all, "1|News|https://a.example/live\n"
+                      "101|Rugby|https://b.example/live|#00FF00|sports\n"
+                      "2|Odd|https://c.example/live||football\n", warn, sizeof warn) == 2);
+    CHECK(strstr(warn, "line 3") != NULL);
+    channels_group(&all, CH_TV, &tv);
+    channels_group(&all, CH_SPORTS, &sports);
+    CHECK(tv.n == 1 && tv.ch[0].number == 1);
+    CHECK(sports.n == 1 && sports.ch[0].number == 101 && sports.ch[0].accent == 0xFF00FF00u);
+    channels_defaults(&all);
+    channels_group(&all, CH_SPORTS, &sports);
+    CHECK(sports.n >= 10 && sports.ch[0].number == 101);
+}
+
+/* Lines captured from yt-dlp 2026.10.26 on 2026-10-29. */
+static void test_sports_parse_and_order(void)
+{
+    sport_status st[3];
+    int order[3];
+    char url[128];
+    sport_parse("was_live\tA1\tYesterday's game\n"
+                "is_upcoming\tT3LgXSn5ihY\t\xF0\x9F\x94\xB4 LIVE | Australia v Hong Kong China | Rugby World Cup 2027\n"
+                "is_upcoming\tB2\tLater game\n", &st[0]);
+    CHECK(st[0].state == SPORT_UPCOMING && strcmp(st[0].video_id, "T3LgXSn5ihY") == 0);
+    CHECK(strcmp(st[0].title, "Australia v Hong Kong China | Rugby World Cup 2027") == 0);
+    sport_parse("is_upcoming\tU1\tSoon\nis_live\tgCNeDWCI0vo\tLIVE! | T1 | Day 2 | WTT Feeder\n", &st[1]);
+    CHECK(st[1].state == SPORT_LIVE && strcmp(st[1].video_id, "gCNeDWCI0vo") == 0);
+    CHECK(strcmp(st[1].title, "T1 | Day 2 | WTT Feeder") == 0);
+    sport_parse("", &st[2]);
+    CHECK(st[2].state == SPORT_OFF && st[2].title[0] == '\0');
+    CHECK(sports_order(st, 3, order) == 3 && order[0] == 1 && order[1] == 0 && order[2] == 2);
+    CHECK(strcmp(sport_watch_url(&st[1], "https://x/live", url, sizeof url),
+                 "https://www.youtube.com/watch?v=gCNeDWCI0vo") == 0);
+    CHECK(strcmp(sport_watch_url(&st[0], "https://x/live", url, sizeof url), "https://x/live") == 0);
+    CHECK(sport_streams_url("https://www.youtube.com/channel/UCx/live", url, sizeof url) &&
+          strcmp(url, "https://www.youtube.com/channel/UCx/streams") == 0);
+    CHECK(sport_streams_url("https://example.com/match.m3u8", url, sizeof url) == NULL);
+}
+
 void run_channel_tests(void)
 {
+    test_channels_groups();
+    test_sports_parse_and_order();
     test_channels_basic_and_sorted();
     test_channels_notepad_bom_and_crlf();
     test_channels_bad_lines_skipped();

@@ -17,7 +17,7 @@
 #define SETTINGS_ALL_GAMES 0x7u
 
 /* Highest picture height asked of YouTube. Lower uses less mobile data. */
-typedef enum { QUALITY_360, QUALITY_480, QUALITY_720, QUALITY_COUNT } video_quality;
+typedef enum { QUALITY_360, QUALITY_480, QUALITY_720, QUALITY_1080, QUALITY_COUNT } video_quality;
 
 typedef struct {
     uint8_t lang;        /* ft_lang */

@@ -111,9 +111,15 @@ static void text_garden(const garden *g, ft_lang lang, const char *status)
     render_garden(g, status);
 }
 
-static void text_live(const live *l, player *p, const shell *s)
+static void text_live(const live *l, player *p, const shell *s, const channel_list *chs)
 {
-    render_live(l, player_get(p), s);
+    render_live(l, player_get(p), s, chs);
+}
+
+static int text_open_url(const char *url)
+{
+    printf("\n  open in a browser: %s\n", url);
+    return 0;
 }
 
 static int text_is_fullscreen(void)
@@ -123,5 +129,5 @@ static int text_is_fullscreen(void)
 
 const sim_frontend frontend_text = {
     "text", text_folders, text_open, raw_off, text_poll, render_shell, text_racer, text_penalty, text_garden,
-    text_live, NULL, text_is_fullscreen
+    text_live, NULL, text_is_fullscreen, text_open_url
 };

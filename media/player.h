@@ -73,13 +73,29 @@ const player_status *player_get(const player *p);
 enum { PLAYER_SAME_PICTURE = 1, PLAYER_NEW_PICTURE = 2 };
 int player_render(player *p, uint32_t *px, int w, int h, int stride);
 
+/* Background yt-dlp questions (the Sports page asks each channel what it
+ * is streaming). player_probe starts `yt-dlp --flat-playlist ... --print
+ * <format> <page>` and returns at once (-1: cannot); results come back
+ * one at a time from player_probe_next after player_pump. */
+#define PLAYER_PROBE_OUT 2048
+
+typedef struct {
+    int tag;
+    int ok; /* yt-dlp ran and printed something */
+    char out[PLAYER_PROBE_OUT];
+} player_probe_result;
+
+int player_probe(player *p, int tag, const char *page_url, const char *print_format, int items);
+int player_probe_next(player *p, player_probe_result *r);
+
 /* Reads engine and yt-dlp messages and says what went wrong. */
 player_error player_classify(const char *log_text);
 /* Short stable name, e.g. "not-live" (stub addresses, logs). */
 const char *player_error_name(player_error e);
 
 /* yt-dlp format choice for a height cap: at most 30 frames a second below
- * 720p, and the smallest stream rather than the largest when nothing fits. */
+ * 720p (720p and 1080p come at 60), and the smallest stream rather than
+ * the largest when nothing fits. */
 void player_format(int max_height, char *out, unsigned n);
 
 #endif

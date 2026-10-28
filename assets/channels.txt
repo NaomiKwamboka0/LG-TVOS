@@ -1,10 +1,11 @@
 # Family TV channels: Kenyan stations' YouTube live streams.
 #
-# One channel per line:   number|name|address|#colour
+# One channel per line:   number|name|address|#colour|group
 #   number   1-999, used for the channel order and the on-screen number
 #   name     as shown on the cards (English letters, digits and spaces)
 #   address  the channel's YouTube "live" address (must start with https://)
 #   colour   optional card colour, like #1E88E5
+#   group    optional: "sports" puts the channel on the Sports page
 #
 # Use the channel's ID address (youtube.com/channel/UC.../live), not the
 # @name one: names change, and look-alike names belong to other channels.
@@ -14,8 +15,8 @@
 # text (Notepad is fine). If a line has a mistake, Family TV skips it and
 # says which line on the home screen.
 
-# Checked 2026-10-28. Live at the time: Citizen, NTV, KTN News, K24, TV47,
-# Inooro. KBC, Kameme, Ramogi and Switch stream on a schedule.
+# Kenyan stations. Checked 2026-10-28: live then were Citizen, NTV, KTN News,
+# K24, TV47 and Inooro; KBC, Kameme, Ramogi and Switch stream on a schedule.
 1|Citizen TV|https://www.youtube.com/channel/UChBQgieUidXV1CmDxSdRm3g/live|#D32F2F
 2|NTV Kenya|https://www.youtube.com/channel/UCqBJ47FjJcl61fmSbcadAVg/live|#C62828
 3|KTN News|https://www.youtube.com/channel/UCKVsdeoHExltrWMuK0hOWmg/live|#1565C0
@@ -26,3 +27,23 @@
 8|Kameme TV|https://www.youtube.com/channel/UCd9nkc2XA77NMxBvQz35I2Q/live|#6A1B9A
 9|Ramogi TV|https://www.youtube.com/channel/UCmKXJ4C59JjVVJ-axXfpJcg/live|#00838F
 10|Switch TV|https://www.youtube.com/channel/UCUhrpGr_luwUzVaxiW5Jkhw/live|#AD1457
+
+# World news, live around the clock (checked 2026-10-29).
+11|Al Jazeera|https://www.youtube.com/channel/UCNye-wNBqNL5ZzHSJj3l8Bg/live|#D89B2B
+12|DW News|https://www.youtube.com/channel/UCknLrEdhRCp1aegoMqRaCZg/live|#0277BD
+13|France 24|https://www.youtube.com/channel/UCQfwfsi5VrQ8yKZ-UWmAEFg/live|#00695C
+14|Sky News|https://www.youtube.com/channel/UCoMdktPbSTixAyNGwb-UYkQ/live|#B71C1C
+
+# Sports: the sports bodies' own channels, streaming real matches and events
+# for free, mostly on match days. The Sports page shows which are live now.
+101|FIFA|https://www.youtube.com/channel/UCpcTrCXblq78GZrTUTLWeBw/live|#1E3A8A|sports
+102|World Rugby|https://www.youtube.com/channel/UCE28rwYoaV7jvU6GVzdu_GQ/live|#0F766E|sports
+103|FIBA Basketball|https://www.youtube.com/channel/UCtInrnU3QbWqFGsdKT1GZtg/live|#EA580C|sports
+104|Basketball Africa League|https://www.youtube.com/channel/UCSpFKCdUyrn45S5k1Mz7TNA/live|#B45309|sports
+105|Olympics|https://www.youtube.com/channel/UCTl3QQTvqHFjurroKxexy2Q/live|#1D4ED8|sports
+106|World Athletics|https://www.youtube.com/channel/UCQk7fWv15ChjMJLCRVmtApw/live|#BE123C|sports
+107|Women's Super League|https://www.youtube.com/channel/UCnQpt1UxLq00NFULxTDHMww/live|#7C3AED|sports
+108|World Table Tennis|https://www.youtube.com/channel/UC9ckyA_A3MfXUa0ttxMoIZw/live|#0891B2|sports
+109|Volleyball World|https://www.youtube.com/channel/UCNMg6XDhRZI2QzL4pWOvP_w/live|#CA8A04|sports
+110|DAZN Boxing|https://www.youtube.com/channel/UCurvRE5fGcdUgCYWgh-BDsg/live|#374151|sports
+111|Red Bull|https://www.youtube.com/channel/UCblfuW_4rakIf2h6aqANefA/live|#1E40AF|sports

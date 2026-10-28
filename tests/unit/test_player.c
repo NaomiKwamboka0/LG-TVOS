@@ -112,10 +112,32 @@ static void test_format_never_upscales_data(void)
     CHECK(strcmp(f + strlen(f) - 9, "/wv*+ba/w") == 0); /* never "best" as the last resort */
     player_format(720, f, sizeof f);
     CHECK(strcmp(f, "bv*[height<=?720]+ba/b[height<=?720]/wv*+ba/w") == 0);
+    player_format(1080, f, sizeof f);
+    CHECK(strcmp(f, "bv*[height<=?1080]+ba/b[height<=?1080]/wv*+ba/w") == 0);
+}
+
+static void test_stub_probes(void)
+{
+    player *p = make_stub();
+    player_probe_result r;
+    int seen = 0;
+    if (!p)
+        return;
+    CHECK(player_probe(p, 0, "https://www.youtube.com/channel/UCx/streams", "%(id)s", 4) == 0);
+    CHECK(player_probe(p, 2, "https://www.youtube.com/channel/UCy/streams", "%(id)s", 4) == 0);
+    CHECK(player_probe_next(p, &r) == 0); /* answers arrive on the next pump */
+    player_pump(p, 0);
+    while (player_probe_next(p, &r)) {
+        seen++;
+        CHECK(r.ok && (r.tag == 0 ? strstr(r.out, "is_live") != NULL : strstr(r.out, "was_live") != NULL));
+    }
+    CHECK(seen == 2);
+    player_destroy(p);
 }
 
 void run_player_tests(void)
 {
+    test_stub_probes();
     test_stub_loads_then_plays();
     test_stub_error_addresses();
     test_classify_messages();

@@ -426,8 +426,10 @@ static void test_session_play_time_and_settings(void)
     choose_item(&ss, &s, 0);
     CHECK(ss.settings.lang == LANG_EN);
     CHECK(ss.settings.quality == QUALITY_480);
-    choose_item(&ss, &s, 8); /* live TV picture: 480p -> 720p -> 360p */
+    choose_item(&ss, &s, 8); /* live TV picture: 480p -> 720p -> 1080p -> 360p */
     CHECK(ss.settings.quality == QUALITY_720 && s.cfg.quality == QUALITY_720);
+    choose_item(&ss, &s, 8);
+    CHECK(ss.settings.quality == QUALITY_1080);
     choose_item(&ss, &s, 8);
     shell_list(&s, labels, SHELL_MAX_ITEMS);
     CHECK(ss.settings.quality == QUALITY_360 && strstr(labels[8], "360p") != NULL);

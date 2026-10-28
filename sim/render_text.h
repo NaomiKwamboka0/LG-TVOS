@@ -14,6 +14,6 @@ void render_shell(const shell *s);
 void render_racer(const racer *r, const uint32_t best[RACER_LEVELS], const char *status);
 void render_penalty(const penalty *p, const char *status);
 void render_garden(const garden *g, const char *status);
-void render_live(const live *l, const player_status *ps, const shell *s);
+void render_live(const live *l, const player_status *ps, const shell *s, const channel_list *chs);
 
 #endif

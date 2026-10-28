@@ -212,10 +212,22 @@ int session_dispatch(session *ss, shell *s, shell_action a)
 
     switch (a.act) {
     case ACT_PLAY_CHANNEL:
-        if (a.arg < 0 || a.arg >= s->cfg.channels.n)
+    case ACT_PLAY_SPORT: {
+        const channel_list *l = a.act == ACT_PLAY_SPORT ? &s->cfg.sports : &s->cfg.channels;
+        if (a.arg < 0 || a.arg >= l->n)
             break;
         ss->watch_channel = a.arg;
+        ss->watch_sports = a.act == ACT_PLAY_SPORT;
         return SESSION_WATCH;
+    }
+    case ACT_OPEN_APP:
+        /* A browser reaches the whole internet: not from the child profile. */
+        if (s->cfg.profile != PROFILE_PARENT || a.arg < 0 || a.arg >= APP_COUNT) {
+            say(ss, s, STR_ASK_PARENT);
+            break;
+        }
+        ss->open_app = a.arg;
+        return SESSION_OPEN_APP;
     case ACT_LAUNCH_GAME:
         if (a.arg < 0 || a.arg >= GAME_COUNT)
             break;

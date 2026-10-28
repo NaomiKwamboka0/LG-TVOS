@@ -1,6 +1,7 @@
 /* Stand-in player: no network, no decoding, fully repeatable. */
 #include "player_impl.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -15,6 +16,9 @@ typedef struct {
     player_error fail_with;
     uint32_t seed; /* differs per address, so channels look different */
     int unavailable;
+#define STUB_PROBES 16
+    int pending[STUB_PROBES], npending;
+    char pending_out[STUB_PROBES][256];
     uint32_t frame, drawn; /* drawn: frame + 1 last put in px, 0 = none */
 } stub_player;
 
@@ -65,7 +69,11 @@ static void stub_set_volume(player *p, int volume)
 static void stub_pump(player *p, uint64_t now_ms)
 {
     stub_player *s = (stub_player *)p;
+    int i;
     s->now_ms = now_ms;
+    for (i = 0; i < s->npending; i++)
+        player_probe_done(p, s->pending[i], 1, s->pending_out[i], strlen(s->pending_out[i]));
+    s->npending = 0;
     if (s->opening) {
         s->opening = 0;
         s->opened_ms = now_ms;
@@ -113,8 +121,32 @@ static int stub_render(player *p, uint32_t *px, int w, int h, int stride)
     return PLAYER_NEW_PICTURE;
 }
 
+/* Repeatable answers: tag 0 is live, tag 1 has a match coming up, the
+ * rest stream nothing right now. They arrive on the next pump. */
+static int stub_probe(player *p, int tag, const char *page_url, const char *print_format, int items)
+{
+    stub_player *s = (stub_player *)p;
+    char out[256];
+    (void)page_url;
+    (void)print_format;
+    (void)items;
+    if (s->unavailable)
+        return -1;
+    if (tag == 0)
+        snprintf(out, sizeof out, "is_live\tstubLive%02d\tLIVE | Home v Away | Stub Cup Final\n", tag);
+    else if (tag == 1)
+        snprintf(out, sizeof out, "is_upcoming\tstubNext%02d\tSemi-final | Stub League\n", tag);
+    else
+        snprintf(out, sizeof out, "was_live\tstubOld%02d\tLast week's game\n", tag);
+    if (s->npending < STUB_PROBES)
+        s->pending[s->npending++] = tag;
+    snprintf(s->pending_out[s->npending - 1], sizeof s->pending_out[0], "%s", out);
+    wake(s);
+    return 0;
+}
+
 static const player_ops STUB_OPS = {
-    stub_destroy, stub_open, stub_stop, stub_set_volume, stub_pump, stub_render
+    stub_destroy, stub_open, stub_stop, stub_set_volume, stub_pump, stub_render, stub_probe
 };
 
 player *player_create_stub(const player_config *cfg)

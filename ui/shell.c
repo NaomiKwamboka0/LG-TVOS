@@ -5,7 +5,9 @@
 
 static const ft_str GAME_NAME[GAME_COUNT] = {STR_GAME_RACER, STR_GAME_PENALTY, STR_GAME_GARDEN};
 static const ft_str TAB_NAME[TAB_COUNT] = {STR_FOR_YOU, STR_LIVE_TV, STR_APPS};
-static const ft_str QUALITY_LABEL[] = {STR_QUALITY_360, STR_QUALITY_480, STR_QUALITY_720};
+static const ft_str QUALITY_LABEL[] = {STR_QUALITY_360, STR_QUALITY_480, STR_QUALITY_720, STR_QUALITY_1080};
+static const char *const APP_NAME[APP_COUNT] = {"Netflix", "YouTube"};
+static const char *const APP_URL[APP_COUNT] = {"https://www.netflix.com/browse", "https://www.youtube.com/"};
 #define QUALITY_LABELS ((int)(sizeof QUALITY_LABEL / sizeof QUALITY_LABEL[0]))
 
 typedef struct {
@@ -24,6 +26,21 @@ const char *shell_tab_label(ft_lang lang, int tab)
     return tab >= 0 && tab < TAB_COUNT ? tr(lang, TAB_NAME[tab]) : "?";
 }
 
+const char *shell_app_name(int app)
+{
+    return app >= 0 && app < APP_COUNT ? APP_NAME[app] : "?";
+}
+
+const char *shell_app_url(int app)
+{
+    return app >= 0 && app < APP_COUNT ? APP_URL[app] : "";
+}
+
+int shell_sports_order(const shell *s, int *order)
+{
+    return sports_order(s->cfg.sport, s->cfg.sports.n, order);
+}
+
 const char *shell_card_label(const shell *s, shell_card c)
 {
     ft_lang L = s->cfg.lang;
@@ -35,6 +52,8 @@ const char *shell_card_label(const shell *s, shell_card c)
     case CARD_PROFILE: return tr(L, s->cfg.profile == PROFILE_PARENT ? STR_TO_CHILD : STR_TO_PARENT);
     case CARD_ABOUT: return tr(L, STR_ABOUT);
     case CARD_NO_CHANNELS: return tr(L, STR_NO_CHANNELS);
+    case CARD_SPORTS: return tr(L, STR_SPORTS);
+    case CARD_APP: return shell_app_name(c.arg);
     }
     return "?";
 }
@@ -122,6 +141,21 @@ static void put(shell_row *r, card_kind kind, int arg)
     }
 }
 
+/* Streaming services open a web browser: parents only. */
+static void apps_row(const shell *s, shell_row *out, int *n, int max, int with_sports)
+{
+    shell_row *r;
+    int a;
+    if (s->cfg.profile != PROFILE_PARENT && !(with_sports && s->cfg.sports.n > 0))
+        return;
+    r = new_row(out, n, max, ROW_CARDS, STR_WATCH_MORE);
+    if (with_sports && s->cfg.sports.n > 0)
+        put(r, CARD_SPORTS, 0);
+    if (s->cfg.profile == PROFILE_PARENT)
+        for (a = 0; a < APP_COUNT; a++)
+            put(r, CARD_APP, a);
+}
+
 static void games_row(const shell *s, shell_row *out, int *n, int max)
 {
     shell_row *r = new_row(out, n, max, ROW_CARDS, STR_GAMES);
@@ -151,6 +185,11 @@ int shell_home_rows(const shell *s, shell_row *out, int max)
         } else {
             put(r, CARD_NO_CHANNELS, 0);
         }
+        if (s->cfg.sports.n > 0) {
+            r = new_row(out, &n, max, ROW_BANNER, STR_COUNT);
+            put(r, CARD_SPORTS, 0);
+        }
+        apps_row(s, out, &n, max, 0);
         games_row(s, out, &n, max);
         break;
     case TAB_LIVE:
@@ -165,6 +204,7 @@ int shell_home_rows(const shell *s, shell_row *out, int max)
         break;
     case TAB_APPS:
         games_row(s, out, &n, max);
+        apps_row(s, out, &n, max, 1);
         r = new_row(out, &n, max, ROW_CARDS, STR_FAMILY);
         if (s->cfg.profile == PROFILE_PARENT)
             put(r, CARD_SETTINGS, 0);
@@ -237,6 +277,7 @@ static int items(const shell *s, item *out, int max)
         break;
     case SCR_HOME:
     case SCR_PIN:
+    case SCR_SPORTS:
         break;
     }
     return n;
@@ -258,6 +299,7 @@ const char *shell_screen_title(const shell *s)
     ft_lang L = s->cfg.lang;
     switch (s->screen) {
     case SCR_MORE: return tr(L, STR_SETTINGS);
+    case SCR_SPORTS: return tr(L, STR_SPORTS);
     case SCR_SETTINGS: return tr(L, STR_PARENT_SETTINGS);
     case SCR_PIN:
         switch (s->pin_for) {
@@ -297,7 +339,9 @@ static shell_action card_action(shell_card c)
     case CARD_SETTINGS: a.act = ACT_OPEN_PARENT_SETTINGS; break;
     case CARD_PROFILE: a.act = ACT_SWITCH_PROFILE; break;
     case CARD_ABOUT: a.act = ACT_ABOUT; break;
-    case CARD_NO_CHANNELS: break;
+    case CARD_APP: a.act = ACT_OPEN_APP; break;
+    case CARD_NO_CHANNELS:
+    case CARD_SPORTS: break;
     }
     a.arg = c.arg;
     return a;
@@ -356,12 +400,37 @@ static shell_action home_key(shell *s, ft_key k)
             s->top = s->tab;
     } else if (k == FT_DOWN && s->row < nrows - 1) {
         s->row++;
+    } else if (k == FT_OK && r->n > 0 && r->cards[*col].kind == CARD_SPORTS) {
+        int order[CH_MAX];
+        s->screen = SCR_SPORTS;
+        s->item = shell_sports_order(s, order) > 0 ? order[0] : 0;
     } else if (k == FT_OK && r->n > 0) {
         a = card_action(r->cards[*col]);
     } else if (k == FT_BACK) {
         s->row = -1;
         s->top = s->tab;
     }
+    return a;
+}
+
+/* Up and Down follow the page order, which changes as live results come
+ * in; the focus stays on the same channel meanwhile. */
+static shell_action sports_key(shell *s, ft_key k)
+{
+    shell_action a = {ACT_NONE, 0};
+    int order[CH_MAX], n = shell_sports_order(s, order), pos = 0, i;
+    for (i = 0; i < n; i++)
+        if (order[i] == s->item)
+            pos = i;
+    if (k == FT_UP && pos > 0)
+        s->item = order[pos - 1];
+    else if (k == FT_DOWN && pos < n - 1)
+        s->item = order[pos + 1];
+    else if (k == FT_OK && n > 0) {
+        a.act = ACT_PLAY_SPORT;
+        a.arg = s->item;
+    } else if (k == FT_BACK)
+        s->screen = SCR_HOME;
     return a;
 }
 
@@ -404,6 +473,8 @@ shell_action shell_key(shell *s, ft_key k)
         return home_key(s, k);
     if (s->screen == SCR_PIN)
         return pin_key(s, k);
+    if (s->screen == SCR_SPORTS)
+        return sports_key(s, k);
 
     n = items(s, it, SHELL_MAX_ITEMS);
     if (k == FT_UP && s->item > 0) {

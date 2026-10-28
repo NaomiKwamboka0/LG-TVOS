@@ -382,9 +382,12 @@ static uint64_t fixed_ms(void) { return 1000; }
 
 static void base_config(shell_config *c)
 {
+    static channel_list all;
     memset(c, 0, sizeof *c);
     c->child_games = 0x7;
-    channels_defaults(&c->channels);
+    channels_defaults(&all);
+    channels_group(&all, CH_TV, &c->channels);
+    channels_group(&all, CH_SPORTS, &c->sports);
 }
 
 static int rows_of(const shell *s, shell_row *rows)
@@ -402,12 +405,15 @@ static void test_home_rows_per_tab(void)
     c.last_channel = 3;
     shell_init(&s, &c);
 
-    n = rows_of(&s, rows); /* For you: banner, channels, games */
-    CHECK(n == 3);
+    n = rows_of(&s, rows); /* For you: banner, channels, sports, watch more, games */
+    CHECK(n == 5);
     CHECK(rows[0].style == ROW_HERO && rows[0].n == 1);
     CHECK(rows[0].cards[0].kind == CARD_CHANNEL && rows[0].cards[0].arg == 3); /* last watched */
     CHECK(rows[1].style == ROW_CARDS && rows[1].n == c.channels.n && rows[1].title == STR_LIVE_CHANNELS);
-    CHECK(rows[2].n == GAME_COUNT && rows[2].cards[0].kind == CARD_GAME);
+    CHECK(rows[2].style == ROW_BANNER && rows[2].cards[0].kind == CARD_SPORTS);
+    CHECK(rows[3].n == APP_COUNT && rows[3].cards[0].kind == CARD_APP && rows[3].cards[0].arg == APP_NETFLIX);
+    CHECK(rows[4].n == GAME_COUNT && rows[4].cards[0].kind == CARD_GAME);
+    CHECK(c.channels.n == 14 && c.sports.n == 11); /* sports stay off the channel list */
 
     s.tab = TAB_LIVE; /* a guide row per channel */
     n = rows_of(&s, rows);
@@ -419,14 +425,16 @@ static void test_home_rows_per_tab(void)
 
     s.tab = TAB_APPS;
     n = rows_of(&s, rows);
-    CHECK(n == 2 && rows[0].n == GAME_COUNT);
-    CHECK(rows[1].n == 3 && rows[1].cards[0].kind == CARD_SETTINGS && rows[1].cards[2].kind == CARD_ABOUT);
+    CHECK(n == 3 && rows[0].n == GAME_COUNT);
+    CHECK(rows[1].n == 1 + APP_COUNT && rows[1].cards[0].kind == CARD_SPORTS);
+    CHECK(rows[2].n == 3 && rows[2].cards[0].kind == CARD_SETTINGS && rows[2].cards[2].kind == CARD_ABOUT);
 
     c.last_channel = 99; /* stale: falls back to the first channel */
     c.channels.n = 0;    /* and with no channels at all, say so */
+    c.sports.n = 0;
     shell_init(&s, &c);
     n = rows_of(&s, rows);
-    CHECK(n == 2 && rows[0].cards[0].kind == CARD_NO_CHANNELS);
+    CHECK(n == 3 && rows[0].cards[0].kind == CARD_NO_CHANNELS);
     CHECK(shell_key(&s, FT_OK).act == ACT_NONE);
     s.tab = TAB_LIVE;
     CHECK(rows_of(&s, rows) == 1 && rows[0].cards[0].kind == CARD_NO_CHANNELS);
@@ -462,6 +470,57 @@ static void test_shell_dad_reaches_channel_in_two_presses(void)
     test_clean_save(path);
 }
 
+/* Sports: one tile opens the page; live matches come first; OK plays one. */
+static void test_sports_page(void)
+{
+    const char *path = TMP "/sports-settings.sav";
+    shell_config c;
+    static shell s;
+    static session ss;
+    shell_action a;
+    test_clean_save(path);
+    base_config(&c);
+    shell_init(&s, &c);
+    session_init_with_clock(&ss, &s, path, fixed_ms, fixed_wall);
+    s.cfg.sport[4].state = SPORT_LIVE;
+    s.cfg.sport[2].state = SPORT_UPCOMING;
+    shell_key(&s, FT_DOWN);
+    shell_key(&s, FT_DOWN); /* the Sports banner */
+    shell_key(&s, FT_OK);
+    CHECK(s.screen == SCR_SPORTS && s.item == 4); /* starts on the live match */
+    shell_key(&s, FT_DOWN);
+    CHECK(s.item == 2);
+    s.cfg.sport[0].state = SPORT_LIVE; /* news arrives: the focus stays put */
+    CHECK(s.item == 2);
+    shell_key(&s, FT_UP);
+    CHECK(s.item == 4);
+    a = shell_key(&s, FT_OK);
+    CHECK(a.act == ACT_PLAY_SPORT && a.arg == 4);
+    CHECK(session_dispatch(&ss, &s, a) == SESSION_WATCH && ss.watch_sports && ss.watch_channel == 4);
+    shell_key(&s, FT_BACK);
+    CHECK(s.screen == SCR_HOME);
+    test_clean_save(path);
+}
+
+/* Netflix and YouTube open in the browser, for parents only. */
+static void test_apps_parent_only(void)
+{
+    const char *path = TMP "/apps-settings.sav";
+    shell_config c;
+    static shell s;
+    static session ss;
+    test_clean_save(path);
+    base_config(&c);
+    shell_init(&s, &c);
+    session_init_with_clock(&ss, &s, path, fixed_ms, fixed_wall);
+    CHECK(session_dispatch(&ss, &s, (shell_action){ACT_OPEN_APP, APP_NETFLIX}) == SESSION_OPEN_APP);
+    CHECK(ss.open_app == APP_NETFLIX && strncmp(shell_app_url(APP_NETFLIX), "https://www.netflix.com", 23) == 0);
+    s.cfg.profile = PROFILE_CHILD;
+    CHECK(session_dispatch(&ss, &s, (shell_action){ACT_OPEN_APP, APP_NETFLIX}) == -1);
+    CHECK(strstr(s.status, "Ask a parent") != NULL);
+    test_clean_save(path);
+}
+
 static void test_shell_child_profile_limits(void)
 {
     static shell_row rows[SHELL_MAX_ROWS];
@@ -474,16 +533,17 @@ static void test_shell_child_profile_limits(void)
     c.child_games = 1u << GAME_RACER;
     shell_init(&s, &c);
     n = rows_of(&s, rows);
-    CHECK(n == 3 && rows[2].n == 1 && rows[2].cards[0].arg == GAME_RACER);
+    CHECK(n == 4 && rows[3].n == 1 && rows[3].cards[0].arg == GAME_RACER); /* no app tiles */
 
     s.tab = TAB_APPS;
     n = rows_of(&s, rows);
-    CHECK(n == 2 && rows[1].n == 2); /* no Parent settings card */
-    for (i = 0; i < rows[1].n; i++)
-        if (rows[1].cards[i].kind == CARD_SETTINGS)
+    CHECK(n == 3 && rows[1].n == 1 && rows[1].cards[0].kind == CARD_SPORTS); /* Sports, no apps */
+    CHECK(rows[2].n == 2); /* no Parent settings card */
+    for (i = 0; i < rows[2].n; i++)
+        if (rows[2].cards[i].kind == CARD_SETTINGS)
             has_settings = 1;
     CHECK(!has_settings);
-    CHECK(strcmp(shell_card_label(&s, rows[1].cards[0]), "Switch to parent profile") == 0);
+    CHECK(strcmp(shell_card_label(&s, rows[2].cards[0]), "Switch to parent profile") == 0);
 
     s.screen = SCR_MORE;
     n = shell_list(&s, labels, SHELL_MAX_ITEMS);
@@ -495,7 +555,7 @@ static void test_shell_child_profile_limits(void)
 
     c.child_games = 0; /* every game blocked: no empty Games row */
     shell_init(&s, &c);
-    CHECK(rows_of(&s, rows) == 2);
+    CHECK(rows_of(&s, rows) == 3);
 }
 
 /* Every card on every tab, and each top bar item, can be reached with the arrows. */
@@ -672,6 +732,8 @@ int main(void)
     test_home_rows_per_tab();
     test_shell_dad_reaches_channel_in_two_presses();
     test_shell_child_profile_limits();
+    test_sports_page();
+    test_apps_parent_only();
     test_shell_every_card_reachable();
     test_shell_back_tabs_and_columns();
     test_shell_kiswahili_labels();

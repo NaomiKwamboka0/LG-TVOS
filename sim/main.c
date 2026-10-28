@@ -15,6 +15,7 @@
 #include "playtime.h"
 #include "prefs.h"
 #include "racer.h"
+#include "sports.h"
 #include "frontend.h"
 #include "save.h"
 #include "session.h"
@@ -318,7 +319,7 @@ static void run_garden(session *ss, shell *s)
 
 static int quality_height(int quality)
 {
-    return quality == QUALITY_360 ? 360 : quality == QUALITY_720 ? 720 : 480;
+    return quality == QUALITY_360 ? 360 : quality == QUALITY_720 ? 720 : quality == QUALITY_1080 ? 1080 : 480;
 }
 
 static void save_prefs(void)
@@ -327,18 +328,25 @@ static void save_prefs(void)
     prefs_save(&prefs, data_path(path, sizeof path, "player.sav"));
 }
 
-static void tune(shell *s, int index)
+/* Sports channels play their live match itself when the Sports page found
+ * one; the channel lists remember the last channel for the banner. */
+static void tune(shell *s, const channel_list *chs, int index)
 {
-    const channel *ch = &s->cfg.channels.ch[index];
+    const channel *ch = &chs->ch[index];
+    if (chs == &s->cfg.sports) {
+        char url[CH_URL_MAX];
+        player_open(pl, sport_watch_url(&s->cfg.sport[index], ch->url, url, sizeof url));
+        return;
+    }
     player_open(pl, ch->url);
     s->cfg.last_channel = index;
     prefs.last_channel = ch->number;
 }
 
-static int live_apply(shell *s, live_action a)
+static int live_apply(shell *s, const channel_list *chs, live_action a)
 {
     if (a.act == LIVE_ACT_TUNE)
-        tune(s, a.arg);
+        tune(s, chs, a.arg);
     else if (a.act == LIVE_ACT_VOLUME)
         player_set_volume(pl, a.arg);
     return a.act == LIVE_ACT_EXIT;
@@ -346,29 +354,29 @@ static int live_apply(shell *s, live_action a)
 
 /* Watches until Back. The stream stops on the way out, so no data is
  * spent while the family is on the home screen. */
-static void run_live(session *ss, shell *s, int index)
+static void run_live(session *ss, shell *s, const channel_list *chs, int index)
 {
     live l;
     uint64_t last = loop_now();
     int done = 0, was_playing = 0;
 
-    live_init(&l, s->cfg.channels.n, index, prefs.volume);
+    live_init(&l, chs->n, index, prefs.volume);
     player_set_max_height(pl, quality_height(ss->settings.quality));
     player_set_volume(pl, l.volume);
-    tune(s, index);
+    tune(s, chs, index);
     save_prefs();
     while (!quit_req && !done) {
         ft_key k = next_key(FRAME_MS);
         uint64_t now = loop_now();
-        done = live_apply(s, live_tick(&l, (int)(now - last)));
+        done = live_apply(s, chs, live_tick(&l, (int)(now - last)));
         last = now;
         if (k != FT_NONE)
-            done = live_apply(s, live_key(&l, k, player_get(pl)->state == PLAYER_ERROR)) || done;
+            done = live_apply(s, chs, live_key(&l, k, player_get(pl)->state == PLAYER_ERROR)) || done;
         player_pump(pl, now);
         if (player_get(pl)->state == PLAYER_PLAYING && !was_playing)
             live_started(&l);
         was_playing = player_get(pl)->state == PLAYER_PLAYING;
-        fe->live(&l, pl, s);
+        fe->live(&l, pl, s, chs);
     }
     player_stop(pl);
     prefs.volume = l.volume;
@@ -421,6 +429,63 @@ static player *make_player(int want_stub, const char *ytdl_path, int verbose)
     return p ? p : player_create_unavailable(&pc);
 }
 
+/* ---- Sports page ----------------------------------------------------------- */
+
+#define PROBES_AT_ONCE 4
+
+static uint64_t sports_checked_ms;
+static int probe_next, probes_running;
+
+static void start_probes(shell *s)
+{
+    while (probes_running < PROBES_AT_ONCE && probe_next < s->cfg.sports.n) {
+        int i = probe_next++;
+        char page[CH_URL_MAX + 8];
+        if (!sport_streams_url(s->cfg.sports.ch[i].url, page, sizeof page) ||
+            player_probe(pl, i, page, SPORT_PRINT_FORMAT, 4) != 0) {
+            s->cfg.sport[i].state = SPORT_UNKNOWN;
+            continue;
+        }
+        s->cfg.sport[i].state = SPORT_CHECKING;
+        probes_running++;
+    }
+}
+
+/* Asks every sports channel what it is streaming, unless it was asked
+ * within the last few minutes. */
+static void sports_refresh(shell *s)
+{
+    uint64_t now = loop_now();
+    int i;
+    if (probes_running > 0 || (sports_checked_ms && now - sports_checked_ms < SPORT_FRESH_MS))
+        return;
+    sports_checked_ms = now;
+    probe_next = 0;
+    for (i = 0; i < s->cfg.sports.n; i++)
+        s->cfg.sport[i].state = SPORT_CHECKING;
+    start_probes(s);
+}
+
+/* Returns 1 if anything on the Sports page changed. */
+static int sports_collect(shell *s)
+{
+    player_probe_result r;
+    int changed = 0;
+    while (player_probe_next(pl, &r)) {
+        if (r.tag >= 0 && r.tag < s->cfg.sports.n) {
+            if (r.ok)
+                sport_parse(r.out, &s->cfg.sport[r.tag]);
+            else
+                s->cfg.sport[r.tag].state = SPORT_UNKNOWN;
+        }
+        probes_running = probes_running > 0 ? probes_running - 1 : 0;
+        changed = 1;
+    }
+    if (changed)
+        start_probes(s);
+    return changed;
+}
+
 /* ---- main --------------------------------------------------------------- */
 
 static void load_config(shell_config *c, char *warn, size_t n)
@@ -428,12 +493,15 @@ static void load_config(shell_config *c, char *warn, size_t n)
     char data_ch[512];
     char base_ch[512];
     const char *paths[3];
+    static channel_list all;
     int last;
     memset(c, 0, sizeof *c);
     paths[0] = data_path(data_ch, sizeof data_ch, "channels.txt");
     paths[1] = base_path(base_ch, sizeof base_ch, "channels.txt");
     paths[2] = "assets/channels.txt"; /* running from the source folder */
-    channels_load(&c->channels, paths, 3, warn, n);
+    channels_load(&all, paths, 3, warn, n);
+    channels_group(&all, CH_TV, &c->channels);
+    channels_group(&all, CH_SPORTS, &c->sports);
     last = channels_find_number(&c->channels, prefs.last_channel);
     c->last_channel = last >= 0 ? last : 0;
 }
@@ -524,10 +592,15 @@ int main(int argc, char **argv)
     while (!quit_req) {
         ft_key k;
         int r;
+        if (s.screen == SCR_SPORTS)
+            sports_refresh(&s);
         fe->shell(&s);
-        k = next_key(ms_to_next_minute());
+        /* Sports answers wake the loop through the player (the stub needs a nudge). */
+        k = next_key(probes_running > 0 ? 100 : ms_to_next_minute());
+        player_pump(pl, loop_now());
+        sports_collect(&s);
         if (k == FT_NONE)
-            continue; /* redraw: the clock moved on */
+            continue; /* redraw: the clock moved on, or sports news */
         r = session_dispatch(&ss, &s, shell_key(&s, k));
         if (r == GAME_RACER)
             run_racer(&ss, &s);
@@ -536,7 +609,10 @@ int main(int argc, char **argv)
         else if (r == GAME_GARDEN)
             run_garden(&ss, &s);
         else if (r == SESSION_WATCH)
-            run_live(&ss, &s, ss.watch_channel);
+            run_live(&ss, &s, ss.watch_sports ? &s.cfg.sports : &s.cfg.channels, ss.watch_channel);
+        else if (r == SESSION_OPEN_APP)
+            snprintf(s.status, sizeof s.status, "%s",
+                     tr(s.cfg.lang, fe->open_url(shell_app_url(ss.open_app)) == 0 ? STR_APP_OPENED : STR_UNAVAILABLE));
     }
     player_destroy(pl);
     if (!script_mode) {
