@@ -122,12 +122,18 @@ static int text_open_url(const char *url)
     return 0;
 }
 
+static int text_shell(const shell *s)
+{
+    render_shell(s);
+    return 0;
+}
+
 static int text_is_fullscreen(void)
 {
     return 0;
 }
 
 const sim_frontend frontend_text = {
-    "text", text_folders, text_open, raw_off, text_poll, render_shell, text_racer, text_penalty, text_garden,
-    text_live, NULL, text_is_fullscreen, text_open_url
+    "text", text_folders, text_open, raw_off, text_poll, text_shell, text_racer, text_penalty, text_garden,
+    text_live, NULL, text_is_fullscreen, text_open_url, NULL
 };

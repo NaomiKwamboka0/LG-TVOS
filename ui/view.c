@@ -42,68 +42,105 @@ static ft_rect lift(ft_rect r, int dx, int dy)
 
 /* ---- shared pieces ------------------------------------------------------ */
 
-/* The glowing backdrop is the most expensive layer. The glow shape depends
- * only on the screen layout, so its alpha mask is built once per layout and
- * recoloured per accent; the finished backdrop is kept until the accent
- * changes. Both work in physical pixels, so the buffers follow the screen
- * size (about 41 MB at 4K, 4.5 MB at 720p). */
+/* The glowing backdrop is the most expensive layer. Its two glows are
+ * drawn once per layout into alpha masks a little larger than the screen;
+ * each frame only looks the masks up through a 256-entry colour table per
+ * row. Still screens cache the result until the accent changes. On the home
+ * screen the masks drift slowly in different directions and the colour
+ * breathes, which is the moving background at the cost of a recolour.
+ * Physical pixels throughout, so the buffers follow the screen size. */
+#define AMBIENT_PAD 40 /* logical px each glow may drift */
+
 static uint32_t *backdrop_cache;
-static uint8_t *glow_mask;
-static int cache_w, cache_h;
+static uint8_t *glow_a, *glow_b;
+static int cache_w, cache_h, mask_w, mask_h, mask_pad;
 static struct {
     int valid, glow_x, glow_y, fade;
     ft_color accent;
 } backdrop_key;
 static struct {
-    int valid, glow_x, glow_y;
+    int valid, glow_x, glow_y, w, h;
 } mask_key;
 
-static int backdrop_buffers(int w, int h)
+/* sin(i * 2pi / 64) * 1000 */
+static const int SIN64[64] = {
+    0, 98, 195, 290, 383, 471, 556, 634, 707, 773, 831, 882, 924, 957, 981, 995,
+    1000, 995, 981, 957, 924, 882, 831, 773, 707, 634, 556, 471, 383, 290, 195, 98,
+    0, -98, -195, -290, -383, -471, -556, -634, -707, -773, -831, -882, -924, -957, -981, -995,
+    -1000, -995, -981, -957, -924, -882, -831, -773, -707, -634, -556, -471, -383, -290, -195, -98
+};
+
+/* A slow wave: period in ms, -1000..1000. */
+static int wave(uint32_t t, uint32_t period, int phase)
 {
-    if (w == cache_w && h == cache_h && backdrop_cache)
+    return SIN64[(t % period * 64 / period + (uint32_t)phase) % 64];
+}
+
+static int backdrop_buffers(int w, int h, int pad)
+{
+    int mw = w + 2 * pad, mh = h + 2 * pad;
+    if (w == cache_w && h == cache_h && backdrop_cache && mask_pad == pad)
         return 1;
     free(backdrop_cache);
-    free(glow_mask);
+    free(glow_a);
+    free(glow_b);
     backdrop_cache = (uint32_t *)malloc((size_t)w * (size_t)h * sizeof(uint32_t));
-    glow_mask = (uint8_t *)malloc((size_t)w * (size_t)h);
+    glow_a = (uint8_t *)malloc((size_t)mw * (size_t)mh);
+    glow_b = (uint8_t *)malloc((size_t)mw * (size_t)mh);
     backdrop_key.valid = mask_key.valid = 0;
-    if (!backdrop_cache || !glow_mask) {
+    if (!backdrop_cache || !glow_a || !glow_b) {
         free(backdrop_cache);
-        free(glow_mask);
+        free(glow_a);
+        free(glow_b);
         backdrop_cache = NULL;
-        glow_mask = NULL;
+        glow_a = glow_b = NULL;
         cache_w = cache_h = 0;
         return 0;
     }
     cache_w = w;
     cache_h = h;
+    mask_w = mw;
+    mask_h = mh;
+    mask_pad = pad;
     return 1;
 }
 
-static void backdrop(ft_canvas *c, ft_color accent, int glow_x, int glow_y, int fade)
+static void backdrop(ft_canvas *c, ft_color accent, int glow_x, int glow_y, int fade, const ui_motion *m)
 {
-    int W = c->w, H = c->h, k = c->scale, y;
+    int W = c->w, H = c->h, k = c->scale, y, pad = AMBIENT_PAD * k / 2;
     int low_y = 360 * k / 2, low_h = H - low_y;
+    int ax = pad, ay = pad, bx = pad, by = pad;
+    ft_color lit_accent = accent | 0xFF000000u;
     if (W * 2 != VIEW_W * k || H * 2 != VIEW_H * k)
         return;
-    if (!backdrop_buffers(W, H)) {
+    if (!backdrop_buffers(W, H, pad)) {
         canvas_clear(c, COL_BG);
         return;
     }
-    if (backdrop_key.valid && backdrop_key.accent == accent && backdrop_key.glow_x == glow_x &&
+    if (!m && backdrop_key.valid && backdrop_key.accent == accent && backdrop_key.glow_x == glow_x &&
         backdrop_key.glow_y == glow_y && backdrop_key.fade == fade) {
         for (y = 0; y < H; y++)
             memcpy(c->px + (long)y * c->stride, backdrop_cache + (long)y * W, (size_t)W * sizeof(uint32_t));
         return;
     }
-    if (!mask_key.valid || mask_key.glow_x != glow_x || mask_key.glow_y != glow_y) {
-        memset(glow_mask, 0, (size_t)W * (size_t)H);
-        canvas_glow_mask(glow_mask, W, H, glow_x * k / 2, glow_y * k / 2, 820 * k / 2, 470 * k / 2, 0x7A);
-        canvas_glow_mask(glow_mask, W, H, (VIEW_W - glow_x / 3) * k / 2, (glow_y - 60) * k / 2, 520 * k / 2,
-                         300 * k / 2, 0x2E);
+    if (!mask_key.valid || mask_key.glow_x != glow_x || mask_key.glow_y != glow_y || mask_key.w != W) {
+        memset(glow_a, 0, (size_t)mask_w * (size_t)mask_h);
+        memset(glow_b, 0, (size_t)mask_w * (size_t)mask_h);
+        canvas_glow_mask(glow_a, mask_w, mask_h, glow_x * k / 2 + pad, glow_y * k / 2 + pad, 820 * k / 2,
+                         470 * k / 2, 0x7A);
+        canvas_glow_mask(glow_b, mask_w, mask_h, (VIEW_W - glow_x / 3) * k / 2 + pad, (glow_y - 60) * k / 2 + pad,
+                         520 * k / 2, 300 * k / 2, 0x2E);
         mask_key.valid = 1;
         mask_key.glow_x = glow_x;
         mask_key.glow_y = glow_y;
+        mask_key.w = W;
+    }
+    if (m) { /* drift on long, unrelated periods, and breathe */
+        ax = pad + pad * wave(m->ambient, 23000, 0) / 1000;
+        ay = pad + pad * wave(m->ambient, 31000, 11) / 1000;
+        bx = pad + pad * wave(m->ambient, 19000, 37) / 1000;
+        by = pad + pad * wave(m->ambient, 27000, 5) / 1000;
+        lit_accent = color_mix(lit_accent, COL_BG_TOP, (unsigned)(40 + 40 * wave(m->ambient, 9000, 0) / 1000));
     }
     /* Each row is one gradient colour, so every pixel is that colour mixed
      * towards the accent by its mask value: a 256-entry table per row turns
@@ -111,8 +148,8 @@ static void backdrop(ft_canvas *c, ft_color accent, int glow_x, int glow_y, int 
     for (y = 0; y < H; y++) {
         uint32_t lut[256], *row = c->px + (long)y * c->stride;
         ft_color base = color_mix(COL_BG_TOP, COL_BG_BOTTOM, (unsigned)(y * 255 / (H - 1)));
-        ft_color lit = accent | 0xFF000000u;
-        const uint8_t *m = glow_mask + (long)y * W;
+        ft_color lit = lit_accent;
+        const uint8_t *ma = glow_a + (long)(y + ay) * mask_w + ax, *mb = glow_b + (long)(y + by) * mask_w + bx;
         long acc[3], step[3];
         int ch, i, x;
         if (fade && y >= low_y) { /* keeps the lower rows legible over a bright glow */
@@ -131,9 +168,13 @@ static void backdrop(ft_canvas *c, ft_color accent, int glow_x, int glow_y, int 
             for (ch = 0; ch < 3; ch++)
                 acc[ch] += step[ch];
         }
-        for (x = 0; x < W; x++)
-            row[x] = lut[m[x]];
+        for (x = 0; x < W; x++) {
+            unsigned v = (unsigned)ma[x] + mb[x]; /* the glows add up like stacked layers */
+            row[x] = lut[v > 255 ? 255 : v];
+        }
     }
+    if (m)
+        return;
     for (y = 0; y < H; y++)
         memcpy(backdrop_cache + (long)y * W, c->px + (long)y * c->stride, (size_t)W * sizeof(uint32_t));
     backdrop_key.valid = 1;
@@ -229,7 +270,7 @@ ft_rect view_top_rect(const shell *s, int item)
 }
 
 /* tabs: draw the tabs and gear (home only); lists show just clock and profile. */
-static void top_bar(ft_canvas *c, const shell *s, const char *clock_text, int tabs)
+static void top_bar(ft_canvas *c, const shell *s, const char *clock_text, int tabs, const ui_motion *m)
 {
     const char *clock = clock_text ? clock_text : "--:--";
     int on_bar = s->screen == SCR_HOME && s->row < 0;
@@ -243,13 +284,17 @@ static void top_bar(ft_canvas *c, const shell *s, const char *clock_text, int ta
     if (!tabs) {
         chip.x = clock_left(clock) - 20 - chip.w;
     } else {
+        { /* one highlight, gliding to the selected tab */
+            ft_rect pill = view_top_rect(s, s->tab);
+            if (m) {
+                pill.x = m->now.tab_x;
+                pill.w = m->now.tab_w;
+            }
+            canvas_round(c, pill, TOP_H / 2, on_bar && s->top < TAB_COUNT ? COL_FOCUS_BG : COL_ROW);
+        }
         for (i = 0; i < TAB_COUNT; i++) {
             ft_rect r = view_top_rect(s, i);
             int focused = on_bar && s->top == i, selected = (int)s->tab == i;
-            if (focused)
-                canvas_round(c, r, TOP_H / 2, COL_FOCUS_BG);
-            else if (selected)
-                canvas_round(c, r, TOP_H / 2, COL_ROW);
             canvas_text_center(c, &font_label, r, shell_tab_label(s->cfg.lang, i),
                                focused ? COL_ON_FOCUS : selected ? COL_TEXT : COL_TEXT_2);
         }
@@ -376,16 +421,15 @@ static int home_layout(const shell *s, shell_row *rows, home_geo *g)
     return n;
 }
 
-ft_rect view_home_card_rect(const shell *s, int row, int col)
+/* Where a card is drawn: from the layout, or where the motion has got to. */
+static ft_rect card_rect(const shell *s, const shell_row *rows, int n, const home_geo *g, int row, int col,
+                         const ui_motion *m)
 {
-    static shell_row rows[SHELL_MAX_ROWS];
-    home_geo g;
-    int n = home_layout(s, rows, &g);
     ft_rect r = {0, 0, 0, 0};
     int y;
     if (row < 0 || row >= n)
         return r;
-    y = g.top[row] - g.offset;
+    y = g->top[row] - (m ? m->now.page_y : g->offset);
     switch (rows[row].style) {
     case ROW_HERO:
     case ROW_BANNER:
@@ -395,7 +439,8 @@ ft_rect view_home_card_rect(const shell *s, int row, int col)
         r.h = rows[row].style == ROW_HERO ? HERO_H : BANNER_H;
         break;
     case ROW_CARDS:
-        r.x = VIEW_MARGIN + (col - first_card(s->col[row], rows[row].n)) * CARD_STEP;
+        r.x = VIEW_MARGIN + col * CARD_STEP -
+              (m ? m->now.row_x[row] : first_card(s->col[row], rows[row].n) * CARD_STEP);
         r.y = y + ROW_TITLE_H;
         r.w = CARD_W;
         r.h = CARD_H;
@@ -408,6 +453,30 @@ ft_rect view_home_card_rect(const shell *s, int row, int col)
         break;
     }
     return r;
+}
+
+ft_rect view_home_card_rect(const shell *s, int row, int col)
+{
+    static shell_row rows[SHELL_MAX_ROWS];
+    home_geo g;
+    int n = home_layout(s, rows, &g);
+    return card_rect(s, rows, n, &g, row, col, NULL);
+}
+
+void view_home_targets(const shell *s, ui_targets *t)
+{
+    static shell_row rows[SHELL_MAX_ROWS];
+    home_geo g;
+    int n = home_layout(s, rows, &g), i;
+    ft_rect pill = view_top_rect(s, s->tab);
+    memset(t, 0, sizeof *t);
+    t->page_y = g.offset;
+    for (i = 0; i < n; i++)
+        if (rows[i].style == ROW_CARDS)
+            t->row_x[i] = first_card(s->col[i], rows[i].n) * CARD_STEP;
+    t->tab_x = pill.x;
+    t->tab_w = pill.w;
+    t->focus_key = (int)s->tab * 100000 + (s->row + 1) * 1000 + (s->row >= 0 ? s->col[s->row] : 900 + s->top);
 }
 
 static void live_pill(ft_canvas *c, int x, int y, ft_lang L)
@@ -638,30 +707,34 @@ static ft_color home_accent(const shell *s, const shell_row *rows, int n)
     return art_accent(card_art(*k));
 }
 
-static void home(ft_canvas *c, const shell *s, const char *clock_text)
+static void home(ft_canvas *c, const shell *s, const char *clock_text, const ui_motion *m)
 {
     static shell_row rows[SHELL_MAX_ROWS];
     home_geo g;
-    int n = home_layout(s, rows, &g), i, j;
+    int n = home_layout(s, rows, &g), i, j, offset;
+    int zoom = m ? m->zoom : MOTION_ZOOM_FULL;
     ft_rect top_fade = {0, 0, VIEW_W, CONTENT_TOP};
     ft_rect bottom_fade = {0, CONTENT_BOTTOM - 24, VIEW_W, 32};
     ft_rect bottom_band = {0, CONTENT_BOTTOM + 8, VIEW_W, VIEW_H - CONTENT_BOTTOM - 8};
 
-    backdrop(c, home_accent(s, rows, n), 980, 40, 1);
-    for (i = g.first_row; i < n; i++) {
+    offset = m ? m->now.page_y : g.offset;
+    backdrop(c, home_accent(s, rows, n), 980, 40, 1, m);
+    for (i = 0; i < n; i++) {
         const shell_row *r = &rows[i];
-        int y = g.top[i] - g.offset, row_focus = s->row == i;
+        int y = g.top[i] - offset, row_focus = s->row == i;
         int col = s->col[i] < r->n ? s->col[i] : 0;
+        if (m ? y + g.height[i] <= CONTENT_TOP - 48 : i < g.first_row)
+            continue; /* scrolled away above */
         if (y >= VIEW_H)
             break;
         if (r->title != STR_COUNT)
             row_title(c, s, r, y);
         switch (r->style) {
         case ROW_HERO:
-            hero(c, view_home_card_rect(s, i, 0), s, r->cards[0], row_focus);
+            hero(c, card_rect(s, rows, n, &g, i, 0, m), s, r->cards[0], row_focus);
             break;
         case ROW_BANNER: {
-            ft_rect b = view_home_card_rect(s, i, 0);
+            ft_rect b = card_rect(s, rows, n, &g, i, 0, m);
             ft_rect sh = {b.x + 10, b.y + 20, b.w - 20, b.h - 10};
             canvas_shadow(c, sh, 28, 0x99000000u);
             sports_art(c, b, 22, s, 1);
@@ -670,12 +743,14 @@ static void home(ft_canvas *c, const shell *s, const char *clock_text)
             break;
         }
         case ROW_GUIDE:
-            guide_row(c, view_home_card_rect(s, i, 0), s, r->cards[0].arg, row_focus);
+            guide_row(c, card_rect(s, rows, n, &g, i, 0, m), s, r->cards[0].arg, row_focus);
             break;
         case ROW_CARDS:
             /* Resting cards first, so the focused one lands on top. */
-            for (j = first_card(col, r->n); j < r->n; j++) {
-                ft_rect k = view_home_card_rect(s, i, j);
+            for (j = 0; j < r->n; j++) {
+                ft_rect k = card_rect(s, rows, n, &g, i, j, m);
+                if (k.x + k.w <= 0)
+                    continue;
                 if (k.x >= VIEW_W)
                     break;
                 if (row_focus && j == col)
@@ -686,8 +761,8 @@ static void home(ft_canvas *c, const shell *s, const char *clock_text)
                     app_card(c, k, s, r->cards[j], 0);
             }
             if (row_focus && r->n > 0) {
-                ft_rect k = view_home_card_rect(s, i, col);
-                k = lift(k, k.w / 25, k.h / 25);
+                ft_rect k = card_rect(s, rows, n, &g, i, col, m);
+                k = lift(k, k.w * zoom / (25 * MOTION_ZOOM_FULL), k.h * zoom / (25 * MOTION_ZOOM_FULL));
                 if (r->cards[col].kind == CARD_CHANNEL)
                     channel_card(c, k, &s->cfg.channels.ch[r->cards[col].arg], 1);
                 else
@@ -696,11 +771,11 @@ static void home(ft_canvas *c, const shell *s, const char *clock_text)
             break;
         }
     }
-    if (g.offset > 0)
+    if (offset > 0)
         canvas_gradient(c, top_fade, color_alpha(COL_BG_TOP, 0xF5), color_alpha(COL_BG_TOP, 0x00));
     canvas_gradient(c, bottom_fade, color_alpha(COL_BG_BOTTOM, 0x00), color_alpha(COL_BG_BOTTOM, 0xF2));
     canvas_fill(c, bottom_band, color_alpha(COL_BG_BOTTOM, 0xF2));
-    top_bar(c, s, clock_text, 1);
+    top_bar(c, s, clock_text, 1, m);
     toast(c, s->status, 600);
     hint(c, tr(s->cfg.lang, STR_HELP_HOME));
 }
@@ -761,9 +836,9 @@ static void list(ft_canvas *c, const shell *s, const char *clock_text)
     ft_rect hero_sh = {hero.x + 8, hero.y + 20, hero.w - 16, hero.h - 8};
     ft_rect desc = {hero.x, hero.y + hero.h + 26, hero.w, 3 * font_body.line_height};
 
-    backdrop(c, art_accent(art), 260, 200, 0);
+    backdrop(c, art_accent(art), 260, 200, 0, NULL);
     canvas_text_center(c, &font_title, title, shell_screen_title(s), COL_TEXT);
-    top_bar(c, s, clock_text, 0);
+    top_bar(c, s, clock_text, 0, NULL);
     canvas_shadow(c, hero_sh, 30, 0x99000000u);
     art_tile(c, hero, 24, art, 0, NULL);
     canvas_text_wrap(c, &font_body, desc, tr(L, s->screen == SCR_SETTINGS ? STR_DESC_SETTINGS : STR_DESC_MORE),
@@ -827,9 +902,9 @@ static void sports_page(ft_canvas *c, const shell *s, const char *clock_text)
     for (i = 0; i < n; i++)
         if (order[i] == s->item)
             pos = i;
-    backdrop(c, FT_RGB(0x1C7A3C), 260, 200, 0);
+    backdrop(c, FT_RGB(0x1C7A3C), 260, 200, 0, NULL);
     canvas_text_center(c, &font_title, title, tr(s->cfg.lang, STR_SPORTS), COL_TEXT);
-    top_bar(c, s, clock_text, 0);
+    top_bar(c, s, clock_text, 0, NULL);
     canvas_shadow(c, (ft_rect){hero_r.x + 8, hero_r.y + 20, hero_r.w - 16, hero_r.h - 8}, 30, 0x99000000u);
     sports_art(c, hero_r, 24, s, 0);
     canvas_text_wrap(c, &font_body, desc, tr(s->cfg.lang, STR_SPORTS_LINE), COL_TEXT_2);
@@ -865,8 +940,8 @@ static void pin(ft_canvas *c, const shell *s, const char *clock_text)
     ft_rect sub = {0, 200, VIEW_W, font_body.line_height};
     int i;
 
-    backdrop(c, art_accent(ART_SETTINGS), 640, 60, 0);
-    top_bar(c, s, clock_text, 0);
+    backdrop(c, art_accent(ART_SETTINGS), 640, 60, 0, NULL);
+    top_bar(c, s, clock_text, 0, NULL);
     art_glyph(c, ART_SETTINGS, VIEW_W / 2, 104, 30, COL_TEXT);
     canvas_text_center(c, &font_title, title, shell_screen_title(s), COL_TEXT);
     canvas_text_center(c, &font_body, sub, tr(L, STR_PIN_HINT), COL_TEXT_2);
@@ -898,8 +973,13 @@ static void pin(ft_canvas *c, const shell *s, const char *clock_text)
 
 void view_shell(ft_canvas *c, const shell *s, const char *clock_text)
 {
+    view_shell_motion(c, s, clock_text, NULL);
+}
+
+void view_shell_motion(ft_canvas *c, const shell *s, const char *clock_text, const ui_motion *m)
+{
     if (s->screen == SCR_HOME)
-        home(c, s, clock_text);
+        home(c, s, clock_text, m);
     else if (s->screen == SCR_SPORTS)
         sports_page(c, s, clock_text);
     else if (s->screen == SCR_PIN)
@@ -962,32 +1042,53 @@ static void error_card(ft_canvas *c, const player_status *ps, const channel *ch,
     help_lines(c, &font_caption, card.x + 60, card.y + 232, card.w - 120, tr(L, STR_HELP_ERROR), COL_TEXT_3);
 }
 
+/* The banner rises in over a fifth of a second and sinks away at the end. */
+static int banner_drop(const live *l)
+{
+    int shown_for = LIVE_BANNER_MS - l->banner_ms;
+    if (l->tune_wait_ms > 0 || l->banner_ms <= 0)
+        return 0;
+    if (shown_for < 220)
+        return (220 - shown_for) * 80 / 220;
+    if (l->banner_ms < 300)
+        return (300 - l->banner_ms) * 250 / 300;
+    return 0;
+}
+
+/* The channel list slides in from the left. */
+static int panel_shift(const live *l)
+{
+    return l->panel_ms < 180 ? -(int)((180 - l->panel_ms) * PANEL_W / 180) : 0;
+}
+
 static void banner(ft_canvas *c, const live *l, const player_status *ps, const channel *ch, ft_lang L,
                    const char *clock_text)
 {
-    ft_rect fade = {0, 470, VIEW_W, VIEW_H - 470};
-    ft_rect badge = {VIEW_MARGIN, 560, 104, 76};
+    int dy = banner_drop(l);
+    ft_rect fade = {0, 470 + dy, VIEW_W, VIEW_H - 470};
+    ft_rect badge = {VIEW_MARGIN, 560 + dy, 104, 76};
     int x = badge.x + badge.w + 24;
     canvas_gradient(c, fade, 0x00000000u, 0xE6000000u);
     number_badge(c, badge, ch, &font_display);
-    canvas_text_fit(c, &font_display, x, 552, 760, ch->name, COL_TEXT);
+    canvas_text_fit(c, &font_display, x, 552 + dy, 760, ch->name, COL_TEXT);
     if (ps->state == PLAYER_PLAYING && l->shown == l->current && l->tune_wait_ms == 0) {
-        live_pill(c, x, 612, L);
+        live_pill(c, x, 612 + dy, L);
         x += text_width(&font_caption, tr(L, STR_LIVE_BADGE)) + 44;
     }
     if (ps->video_h > 0 && l->shown == l->current && ps->state == PLAYER_PLAYING) {
         char q[16];
-        ft_rect chip = {x, 612, 0, 26};
+        ft_rect chip = {x, 612 + dy, 0, 26};
         snprintf(q, sizeof q, "%dp", ps->video_h);
         chip.w = text_width(&font_caption, q) + 20;
         canvas_round_stroke(c, chip, 6, 1, COL_TEXT_2);
         canvas_text_center(c, &font_caption, chip, q, COL_TEXT_2);
         x += chip.w + 14;
     }
-    canvas_text(c, &font_caption, x, 612 + (26 - font_caption.line_height) / 2, "YouTube", COL_TEXT_3);
+    canvas_text(c, &font_caption, x, 612 + dy + (26 - font_caption.line_height) / 2, "YouTube", COL_TEXT_3);
     if (clock_text)
-        canvas_text_right(c, &font_title, VIEW_W - VIEW_MARGIN, 566, clock_text, COL_TEXT);
-    hint(c, tr(L, STR_HELP_LIVE));
+        canvas_text_right(c, &font_title, VIEW_W - VIEW_MARGIN, 566 + dy, clock_text, COL_TEXT);
+    canvas_text_fit(c, &font_caption, VIEW_MARGIN, HINT_Y + dy, VIEW_W - 2 * VIEW_MARGIN, tr(L, STR_HELP_LIVE),
+                    COL_TEXT_3);
 }
 
 static void volume_bar(ft_canvas *c, int volume)
@@ -1009,8 +1110,9 @@ static void volume_bar(ft_canvas *c, int volume)
 
 static void channel_panel(ft_canvas *c, const live *l, const channel_list *chs, ft_lang L)
 {
-    ft_rect panel = {0, 0, PANEL_W, VIEW_H};
-    ft_rect edge = {PANEL_W - 1, 0, 1, VIEW_H};
+    int dx = panel_shift(l);
+    ft_rect panel = {dx, 0, PANEL_W, VIEW_H};
+    ft_rect edge = {dx + PANEL_W - 1, 0, 1, VIEW_H};
     int first = l->panel_item - PANEL_VISIBLE / 2, i;
     if (first > chs->n - PANEL_VISIBLE)
         first = chs->n - PANEL_VISIBLE;
@@ -1018,10 +1120,15 @@ static void channel_panel(ft_canvas *c, const live *l, const channel_list *chs, 
         first = 0;
     canvas_fill(c, panel, COL_PANEL);
     canvas_fill(c, edge, COL_GLASS_EDGE);
-    canvas_text(c, &font_title, 40, 40, tr(L, STR_ALL_CHANNELS), COL_TEXT);
+    canvas_text(c, &font_title, dx + 40, 40, tr(L, STR_ALL_CHANNELS), COL_TEXT);
     for (i = first; i < chs->n && i < first + PANEL_VISIBLE; i++) {
         ft_rect r = view_live_panel_row_rect(i - first);
-        ft_rect badge = {r.x + 10, r.y + 7, 50, r.h - 14};
+        ft_rect badge;
+        r.x += dx;
+        badge.x = r.x + 10;
+        badge.y = r.y + 7;
+        badge.w = 50;
+        badge.h = r.h - 14;
         int focused = i == l->panel_item;
         if (focused)
             canvas_round(c, r, 12, COL_FOCUS_BG);
@@ -1032,10 +1139,10 @@ static void channel_panel(ft_canvas *c, const live *l, const channel_list *chs, 
             canvas_circle(c, r.x + r.w - 20, r.y + r.h / 2, 6, COL_LIVE);
     }
     if (first > 0)
-        canvas_chevron(c, PANEL_W / 2, PANEL_TOP - 14, 12, 4, 1, COL_TEXT_3);
+        canvas_chevron(c, dx + PANEL_W / 2, PANEL_TOP - 14, 12, 4, 1, COL_TEXT_3);
     if (first + PANEL_VISIBLE < chs->n)
-        canvas_chevron(c, PANEL_W / 2, PANEL_TOP + PANEL_VISIBLE * PANEL_STEP + 4, 12, 4, 0, COL_TEXT_3);
-    help_lines(c, &font_caption, 40, 628, PANEL_W - 80, tr(L, STR_HELP_PANEL), COL_TEXT_3);
+        canvas_chevron(c, dx + PANEL_W / 2, PANEL_TOP + PANEL_VISIBLE * PANEL_STEP + 4, 12, 4, 0, COL_TEXT_3);
+    help_lines(c, &font_caption, dx + 40, 628, PANEL_W - 80, tr(L, STR_HELP_PANEL), COL_TEXT_3);
 }
 
 static uint32_t mix(uint32_t h, uint32_t v)
@@ -1054,6 +1161,8 @@ uint32_t view_live_signature(const live *l, const player_status *ps, const shell
     h = mix(h, (uint32_t)l->current);
     h = mix(h, (uint32_t)zapping);
     h = mix(h, (uint32_t)(l->banner_ms > 0));
+    h = mix(h, (uint32_t)banner_drop(l));
+    h = mix(h, (uint32_t)(l->panel_open ? panel_shift(l) : 0));
     h = mix(h, (uint32_t)(l->volume_ms > 0 ? l->volume + 1 : 0));
     h = mix(h, (uint32_t)(l->panel_open ? l->panel_item + 1 : 0));
     h = mix(h, spinning ? l->anim_ms / 110 + 1 : 0); /* the spinner's step */
@@ -1106,6 +1215,67 @@ void view_live(ft_canvas *c, const live *l, const player_status *ps, const shell
         volume_bar(c, l->volume);
     if (l->panel_open)
         channel_panel(c, l, chs, L);
+}
+
+/* ---- start-up ------------------------------------------------------------ */
+
+/* 0..256 over [from, from + len) ms, eased out (fast, then settling). */
+static int ease_out(uint32_t t, uint32_t from, uint32_t len)
+{
+    int u;
+    if (t <= from)
+        return 0;
+    if (t >= from + len)
+        return 256;
+    u = (int)((t - from) * 256 / len);
+    return 256 - (256 - u) * (256 - u) / 256;
+}
+
+/* 0..256 with a small overshoot past 256 before settling ("back" easing). */
+static int ease_back(uint32_t t, uint32_t from, uint32_t len)
+{
+    long v;
+    if (t <= from)
+        return 0;
+    if (t >= from + len)
+        return 256;
+    v = (long)((t - from) * 256 / len) - 256; /* -256..0 */
+    return (int)(256 + 691 * v * v * v / (256L * 256 * 256) + 435 * v * v / (256L * 256));
+}
+
+/* A TV switching on: a glow opens up, the Family TV icon pops in with a
+ * small overshoot, a ring pulses out, the name rises in, then the whole
+ * picture fades into the home screen. Pure function of time. */
+void view_startup(ft_canvas *c, uint32_t t, ft_lang lang)
+{
+    int glow = ease_out(t, 0, 700), pop = ease_back(t, 150, 650), words = ease_out(t, 750, 600);
+    int ring = ease_out(t, 600, 900), out = ease_out(t, 2150, 450);
+    int size = 40 + 160 * pop / 256, cx = VIEW_W / 2, cy = 290;
+    ft_rect tile;
+    ft_rect name = {0, 420 + 30 * (256 - words) / 256, VIEW_W, font_display.line_height};
+    ft_rect sub = {0, 486 + 30 * (256 - words) / 256, VIEW_W, font_body.line_height};
+
+    canvas_clear(c, FT_RGB(0x000000));
+    canvas_glow(c, cx, cy, 120 + 560 * glow / 256, 80 + 300 * glow / 256, color_alpha(FT_RGB(0x2440B0), (unsigned)(0xA0 * glow / 256)));
+    if (ring > 0 && ring < 256)
+        canvas_ring(c, cx, cy, 110 + 260 * ring / 256, 3, color_alpha(COL_TEXT, (unsigned)(0x90 * (256 - ring) / 256)));
+    if (pop > 0) {
+        tile.x = cx - size / 2;
+        tile.y = cy - size / 2;
+        tile.w = size;
+        tile.h = size;
+        canvas_shadow(c, (ft_rect){tile.x + 8, tile.y + 20, tile.w - 16, tile.h - 8}, 30, 0x99000000u);
+        art_tile(c, tile, size / 5, ART_LIVE_TV, 1, NULL);
+    }
+    if (words > 0) {
+        canvas_text_center(c, &font_display, name, tr(lang, STR_FAMILY_TV), color_alpha(COL_TEXT, (unsigned)words * 255 / 256));
+        canvas_text_center(c, &font_body, sub, tr(lang, STR_STARTUP_LINE),
+                           color_alpha(COL_TEXT_2, (unsigned)(0xB3 * words / 256)));
+    }
+    if (out > 0) {
+        ft_rect all = {0, 0, VIEW_W, VIEW_H};
+        canvas_fill(c, all, color_alpha(COL_BG_TOP, (unsigned)(out * 255 / 256)));
+    }
 }
 
 /* ---- Family Racer ------------------------------------------------------- */
@@ -1478,7 +1648,7 @@ void view_garden(ft_canvas *c, const garden *g, ft_lang L, const char *status)
     if (y0 > GARDEN_H - MAP_ROWS)
         y0 = GARDEN_H - MAP_ROWS;
 
-    backdrop(c, art_accent(ART_GARDEN), 640, -160, 0);
+    backdrop(c, art_accent(ART_GARDEN), 640, -160, 0, NULL);
     canvas_text(c, &font_label, MAP_X, 22, tr(L, STR_GAME_GARDEN), COL_TEXT);
     if (status && status[0])
         canvas_text_right(c, &font_body, VIEW_W - MAP_X, 26, status, COL_GOLD);

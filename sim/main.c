@@ -17,6 +17,7 @@
 #include "racer.h"
 #include "sports.h"
 #include "font.h"
+#include "view.h"
 #include "frontend.h"
 #include "save.h"
 #include "session.h"
@@ -510,7 +511,8 @@ static void load_config(shell_config *c, char *warn, size_t n)
 static void usage(void)
 {
     fprintf(stderr,
-            "usage: familytv [--data DIR] [--fullscreen] [--player stub|mpv] [--ytdl PATH] [--verbose] [--stats]\n"
+            "usage: familytv [--data DIR] [--fullscreen] [--no-intro] [--player stub|mpv] [--ytdl PATH]\n"
+            "                [--verbose] [--stats]\n"
             "                [--keys K,K,...] [--dump-frame FILE.ppm]\n"
             "  keys: L R U D OK BACK W (wait 1s) Wn (wait n ticks); scripted runs use the stub player\n"
             "  unless --player mpv is given; with either --player the waits take real time\n");
@@ -527,7 +529,7 @@ int main(int argc, char **argv)
     shell_config cfg;
     static shell s;
     static session ss;
-    int i, r_load, want_stub = 0, want_mpv = 0, verbose = 0, fullscreen = 0;
+    int i, r_load, want_stub = 0, want_mpv = 0, verbose = 0, fullscreen = 0, intro = 1;
     const char *data_arg = NULL;
     const char *ytdl_path = NULL;
     char warn[160] = "";
@@ -544,6 +546,8 @@ int main(int argc, char **argv)
             verbose = 1;
         } else if (!strcmp(argv[i], "--stats")) {
             sim_show_stats = 1;
+        } else if (!strcmp(argv[i], "--no-intro")) {
+            intro = 0;
         } else if (!strcmp(argv[i], "--player") && i + 1 < argc) {
             want_stub = !strcmp(argv[++i], "stub");
             want_mpv = !strcmp(argv[i], "mpv");
@@ -597,14 +601,27 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    if (intro && !script_mode && fe->startup) { /* a TV switching on; any key skips it */
+        uint64_t start = plat_monotonic_ms();
+        for (;;) {
+            uint64_t t = plat_monotonic_ms() - start;
+            if (t >= VIEW_STARTUP_MS || quit_req)
+                break;
+            fe->startup((uint32_t)t, s.cfg.lang);
+            if (fe->poll(16, &quit_req) != FT_NONE)
+                break;
+        }
+    }
+
     while (!quit_req) {
         ft_key k;
-        int r;
+        int r, again, wait;
         if (s.screen == SCR_SPORTS)
             sports_refresh(&s);
-        fe->shell(&s);
+        again = fe->shell(&s);
         /* Sports answers wake the loop through the player (the stub needs a nudge). */
-        k = next_key(probes_running > 0 ? 100 : ms_to_next_minute());
+        wait = probes_running > 0 ? 100 : ms_to_next_minute();
+        k = next_key(again > 0 && again < wait ? again : wait);
         player_pump(pl, loop_now());
         sports_collect(&s);
         if (k == FT_NONE)

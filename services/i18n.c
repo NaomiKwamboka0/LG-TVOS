@@ -156,6 +156,7 @@ static const char *const TABLE[STR_COUNT][LANG_COUNT] = {
                          "Mechi halisi, mubashara kutoka FIFA, World Rugby, FIBA na zaidi."},
     [STR_SPORTS_SHORT] = {"Live games from the official sports channels.",
                           "Mechi mubashara kutoka chaneli rasmi za spoti."},
+    [STR_STARTUP_LINE] = {"Live TV, sports and games for the family", "TV mubashara, spoti na michezo kwa familia"},
     [STR_WATCH_MORE] = {"Watch more", "Tazama zaidi"},
     [STR_LIVE_NOW] = {"live now", "mubashara sasa"},
     [STR_COMING_UP] = {"Coming up", "Inakuja"},

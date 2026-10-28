@@ -26,7 +26,9 @@ typedef struct {
     void (*close)(void);
     /* Waits up to ms for a key (0 = until a key arrives). Sets *quit when the user quits. */
     ft_key (*poll)(int ms, int *quit);
-    void (*shell)(const shell *s);
+    /* Draws the shell; returns how soon (ms) it wants to draw again for
+     * motion or the moving background, or 0 for not until something changes. */
+    int (*shell)(const shell *s);
     void (*racer)(const racer *r, const uint32_t best[RACER_LEVELS], ft_lang lang, const char *status);
     void (*penalty)(const penalty *p, ft_lang lang, const char *status);
     void (*garden)(const garden *g, ft_lang lang, const char *status);
@@ -39,6 +41,8 @@ typedef struct {
     int (*is_fullscreen)(void);
     /* Opens an address in the web browser (and gets out of its way). 0 = ok. */
     int (*open_url)(const char *url);
+    /* One frame of the start-up animation (t: 0..VIEW_STARTUP_MS). May be NULL. */
+    void (*startup)(uint32_t t_ms, ft_lang lang);
 } sim_frontend;
 
 extern const sim_frontend frontend_text;

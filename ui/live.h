@@ -33,6 +33,7 @@ typedef struct {
     int volume;       /* 0-100 */
     int panel_open;
     int panel_item;
+    uint32_t panel_ms; /* how long the channel list has been open (slide-in) */
     uint32_t anim_ms; /* free-running clock for the loading spinner */
 } live;
 

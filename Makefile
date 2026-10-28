@@ -8,7 +8,7 @@ INC := -Igames -Iui -Iplatform -Iservices -Imedia -Isim -Ithird_party/monocypher
 CORE_SRC := games/common.c games/save.c games/racer.c games/penalty.c games/garden.c \
             ui/shell.c services/i18n.c services/pin.c services/playtime.c services/settings.c \
             services/session.c services/channels.c services/prefs.c services/sports.c third_party/monocypher/monocypher.c \
-            ui/canvas.c ui/font_ui_data.c ui/font_scale.c ui/art.c ui/view.c ui/live.c platform/desktop.c \
+            ui/canvas.c ui/font_ui_data.c ui/font_scale.c ui/art.c ui/view.c ui/live.c ui/motion.c platform/desktop.c \
             media/player.c media/player_stub.c
 CORE_HDR := $(wildcard games/*.h ui/*.h platform/*.h services/*.h media/*.h sim/*.h third_party/monocypher/*.h)
 TEST_SRC := tests/unit/test_core.c tests/unit/test_services.c tests/unit/test_view.c tests/unit/test_channels.c tests/unit/test_player.c

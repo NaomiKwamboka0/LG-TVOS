@@ -262,14 +262,40 @@ static ft_key window_poll(int ms, int *quit)
     }
 }
 
-static void window_shell(const shell *s)
+/* Home screen motion: about 60 frames a second while something moves,
+ * then 12 a second for the drifting background. */
+#define MOTION_FRAME_MS 16
+#define AMBIENT_FRAME_MS 80
+
+static ui_motion motion;
+static Uint32 motion_tick;
+
+static int window_shell(const shell *s)
 {
     char clock[8];
+    Uint32 now = SDL_GetTicks();
+    int moving = 0, dt = motion_tick ? (int)(now - motion_tick) : MOTION_FRAME_MS;
     live_on_screen = 0;
     use_scale(best_scale());
     SDL_EnableScreenSaver();
     sim_clock_text(clock, sizeof clock);
-    view_shell(&canvas, s, clock);
+    motion_tick = now;
+    if (s->screen == SCR_HOME) {
+        ui_targets t;
+        view_home_targets(s, &t);
+        moving = motion_step(&motion, &t, s->tab, dt > 100 ? 100 : dt);
+    } else {
+        motion.valid = 0; /* back on Home, the rows start where they belong */
+    }
+    view_shell_motion(&canvas, s, clock, s->screen == SCR_HOME ? &motion : NULL);
+    present();
+    return s->screen != SCR_HOME ? 0 : moving ? MOTION_FRAME_MS : AMBIENT_FRAME_MS;
+}
+
+static void window_startup(uint32_t t_ms, ft_lang lang)
+{
+    use_scale(best_scale());
+    view_startup(&canvas, t_ms, lang);
     present();
 }
 
@@ -383,5 +409,5 @@ static int window_open_url(const char *url)
 
 const sim_frontend frontend_window = {
     "window", window_folders, window_open, window_close, window_poll, window_shell, window_racer, window_penalty,
-    window_garden, window_live, window_wake, window_is_fullscreen, window_open_url
+    window_garden, window_live, window_wake, window_is_fullscreen, window_open_url, window_startup
 };

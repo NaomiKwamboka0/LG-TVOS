@@ -140,6 +140,11 @@ static void shell_shots(void)
     s.col[3] = 1;
     view_shell(&canvas, &s, "20:01");
     save("23-netflix-tile");
+
+    view_startup(&canvas, 450, LANG_EN);
+    save("24-startup-glow");
+    view_startup(&canvas, 1500, LANG_EN);
+    save("25-startup-name");
 }
 
 /* Puts the stub's picture of channel ch on the canvas; returns 1. */

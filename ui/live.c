@@ -70,6 +70,7 @@ live_action live_key(live *l, ft_key k, int error_card)
             return tune_now(l, l->current);
         l->panel_open = 1;
         l->panel_item = l->shown;
+        l->panel_ms = 0;
         break;
     case FT_BACK:
         return act(LIVE_ACT_EXIT, 0);
@@ -92,6 +93,8 @@ live_action live_tick(live *l, int elapsed_ms)
     if (elapsed_ms < 0)
         elapsed_ms = 0;
     l->anim_ms += (uint32_t)elapsed_ms;
+    if (l->panel_open && l->panel_ms < 1000)
+        l->panel_ms += (uint32_t)elapsed_ms;
     count_down(&l->banner_ms, elapsed_ms);
     count_down(&l->volume_ms, elapsed_ms);
     if (count_down(&l->tune_wait_ms, elapsed_ms)) {

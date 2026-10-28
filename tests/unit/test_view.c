@@ -251,6 +251,7 @@ static void test_live_banner_comes_and_goes(void)
     view_live(&c, &l, &ps, &s, &s.cfg.channels, "20:01", 1);
     CHECK(canvas_get(&c, VIEW_W - VIEW_MARGIN - 170, 70) != 0xFF808080u);
     l.panel_open = 1;
+    l.panel_ms = 1000; /* finished sliding in */
     l.panel_item = cfg.channels.n - 1;
     view_live(&c, &l, &ps, &s, &s.cfg.channels, "20:01", 1);
     CHECK(canvas_get(&c, view_live_panel_row_rect(7).x + 300, view_live_panel_row_rect(7).y + 4) == COL_FOCUS_BG);
@@ -369,8 +370,43 @@ static void test_all_views_all_states(void)
     CHECK(1); /* reaching here without sanitizer errors is the assertion */
 }
 
+/* Motion settles on the layout's targets; start-up frames draw cleanly. */
+static void test_motion_and_startup(void)
+{
+    ft_canvas c;
+    shell_config cfg;
+    static shell s;
+    ui_motion m;
+    ui_targets t;
+    int i, moving = 1;
+    uint32_t tm;
+    canvas_init(&c, screen, VIEW_W, VIEW_H, VIEW_W);
+    base(&cfg);
+    shell_init(&s, &cfg);
+    memset(&m, 0, sizeof m);
+    view_home_targets(&s, &t);
+    motion_step(&m, &t, s.tab, 16);
+    s.row = 1;
+    s.col[1] = 6; /* far along the row: it has to slide */
+    view_home_targets(&s, &t);
+    CHECK(t.row_x[1] > 0 && t.page_y == 0);
+    CHECK(motion_step(&m, &t, s.tab, 16) == 1 && m.now.row_x[1] > 0 && m.now.row_x[1] < t.row_x[1]);
+    view_shell_motion(&c, &s, "20:01", &m); /* mid-slide */
+    for (i = 0; i < 100 && moving; i++)
+        moving = motion_step(&m, &t, s.tab, 16);
+    CHECK(!moving && m.now.row_x[1] == t.row_x[1] && m.zoom == MOTION_ZOOM_FULL);
+    s.tab = TAB_APPS; /* a new tab: rows jump, the highlight glides */
+    view_home_targets(&s, &t);
+    motion_step(&m, &t, s.tab, 16);
+    CHECK(m.now.row_x[1] == t.row_x[1] && m.now.tab_x != t.tab_x);
+    for (tm = 0; tm <= VIEW_STARTUP_MS; tm += 50)
+        view_startup(&c, tm, LANG_EN);
+    CHECK(canvas_get(&c, 640, 300) != 0xFF000000u);
+}
+
 void run_view_tests(void)
 {
+    test_motion_and_startup();
     test_wide_glow();
     test_scaled_canvas();
     test_canvas_never_writes_outside();

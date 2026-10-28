@@ -11,6 +11,7 @@
 #include "canvas.h"
 #include "garden.h"
 #include "live.h"
+#include "motion.h"
 #include "penalty.h"
 #include "player.h"
 #include "racer.h"
@@ -19,6 +20,13 @@
 
 /* clock_text: Nairobi time already formatted by the caller, e.g. "20:01". */
 void view_shell(ft_canvas *c, const shell *s, const char *clock_text);
+/* Same, with the home screen drawn where the motion has got to (m may be NULL). */
+void view_shell_motion(ft_canvas *c, const shell *s, const char *clock_text, const ui_motion *m);
+/* Where the home screen's moving parts should end up for this state. */
+void view_home_targets(const shell *s, ui_targets *t);
+/* The start-up animation at t_ms (0..VIEW_STARTUP_MS). */
+#define VIEW_STARTUP_MS 2600
+void view_startup(ft_canvas *c, uint32_t t_ms, ft_lang lang);
 void view_racer(ft_canvas *c, const racer *r, const uint32_t best[RACER_LEVELS], ft_lang lang,
                 const char *status);
 void view_penalty(ft_canvas *c, const penalty *p, ft_lang lang, const char *status);
