@@ -1,5 +1,6 @@
-/* Desktop window: shows the 1280x720 pixel views (ui/view.c) using SDL2.
- * Keys: arrows, Enter = OK, Backspace/Esc = Back, q = quit. */
+/* Desktop window: shows the 1280x720 pixel views (ui/view.c) using SDL2,
+ * scaled smoothly to the window or the whole screen. Keys: arrows,
+ * Enter = OK, Backspace/Esc = Back, F11 or F = full screen, q = quit. */
 #define SDL_MAIN_HANDLED
 #include <SDL.h>
 #include <stdio.h>
@@ -25,17 +26,52 @@ static void present(void)
     SDL_RenderPresent(renderer);
 }
 
-static int window_open(int scripted)
+static void window_folders(char *data, size_t data_n, char *base, size_t base_n)
 {
+    char *pref = SDL_GetPrefPath("FamilyTV", "FamilyTV");
+    char *exe = SDL_GetBasePath();
+    snprintf(data, data_n, "%s", pref ? pref : "");
+    snprintf(base, base_n, "%s", exe ? exe : "");
+    SDL_free(pref);
+    SDL_free(exe);
+}
+
+static void set_fullscreen(int on)
+{
+    SDL_SetWindowFullscreen(window, on ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
+    SDL_ShowCursor(on ? SDL_DISABLE : SDL_ENABLE);
+}
+
+static int window_is_fullscreen(void)
+{
+    return window && (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN_DESKTOP) == SDL_WINDOW_FULLSCREEN_DESKTOP;
+}
+
+static int window_open(int scripted, int fullscreen)
+{
+    SDL_Rect usable;
+    int w = VIEW_W, h = VIEW_H;
     (void)scripted;
     SDL_SetMainReady();
+    /* Sharp on high-DPI Windows laptops instead of a blurry bitmap stretch. */
+    SDL_SetHint("SDL_WINDOWS_DPI_AWARENESS", "permonitorv2");
+    SDL_SetHint("SDL_WINDOWS_DPI_SCALING", "1");
+    SDL_SetHint(SDL_HINT_VIDEO_ALLOW_SCREENSAVER, "1"); /* blocked only while watching */
+    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1"); /* smooth scaling for pictures and fullscreen */
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
         fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError());
         return -1;
     }
-    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "0"); /* keep the bitmap font crisp */
-    window = SDL_CreateWindow("Family TV [SIMULATOR]", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-                              VIEW_W, VIEW_H, SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
+    /* A 1366x768 laptop has no room for 1280x720 plus title bar and taskbar. */
+    if (SDL_GetDisplayUsableBounds(0, &usable) == 0 && usable.w > 0 && usable.h > 0) {
+        if (w > usable.w * 9 / 10)
+            w = usable.w * 9 / 10;
+        if (w * VIEW_H / VIEW_W > usable.h * 9 / 10)
+            w = usable.h * 9 / 10 * VIEW_W / VIEW_H;
+        h = w * VIEW_H / VIEW_W;
+    }
+    window = SDL_CreateWindow("Family TV", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, w, h,
+                              SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
     if (window)
         renderer = SDL_CreateRenderer(window, -1, 0);
     if (renderer)
@@ -48,6 +84,8 @@ static int window_open(int scripted)
     }
     SDL_RenderSetLogicalSize(renderer, VIEW_W, VIEW_H);
     wake_event = SDL_RegisterEvents(1);
+    if (fullscreen)
+        set_fullscreen(1);
     canvas_init(&canvas, pixels, VIEW_W, VIEW_H, VIEW_W);
     canvas_clear(&canvas, COL_BG);
     present();
@@ -104,6 +142,11 @@ static ft_key map_key(const SDL_KeyboardEvent *k, int *quit)
     case SDLK_BACKSPACE:
     case SDLK_ESCAPE:
         return k->repeat ? FT_NONE : FT_BACK;
+    case SDLK_F11:
+    case SDLK_f:
+        if (!k->repeat)
+            set_fullscreen(!window_is_fullscreen());
+        return FT_NONE;
     case SDLK_q:
         *quit = 1;
         return FT_NONE;
@@ -149,6 +192,7 @@ static ft_key window_poll(int ms, int *quit)
 static void window_shell(const shell *s)
 {
     char clock[8];
+    SDL_EnableScreenSaver();
     sim_clock_text(clock, sizeof clock);
     view_shell(&canvas, s, clock);
     present();
@@ -176,6 +220,7 @@ static void window_live(const live *l, player *p, const shell *s)
 {
     char clock[8];
     int has_picture = player_render(p, video, VIEW_W, VIEW_H, VIEW_W);
+    SDL_DisableScreenSaver(); /* nobody touches the keys while watching */
     if (has_picture)
         memcpy(pixels, video, sizeof pixels);
     sim_clock_text(clock, sizeof clock);
@@ -198,6 +243,6 @@ static void window_wake(void *ctx)
 }
 
 const sim_frontend frontend_window = {
-    "window", window_open, window_close, window_poll, window_shell, window_racer, window_penalty, window_garden,
-    window_live, window_wake
+    "window", window_folders, window_open, window_close, window_poll, window_shell, window_racer, window_penalty,
+    window_garden, window_live, window_wake, window_is_fullscreen
 };

@@ -17,8 +17,12 @@
 
 typedef struct {
     const char *name;
+    /* Default folders: data (settings, saves, log) and base (the program's
+     * own folder, holding channels.txt and the bundled yt-dlp and deno).
+     * Either may come back empty; base then means the current folder. */
+    void (*folders)(char *data, size_t data_n, char *base, size_t base_n);
     /* scripted: keys come from --keys, so no interactive input setup. */
-    int (*open)(int scripted);
+    int (*open)(int scripted, int fullscreen);
     void (*close)(void);
     /* Waits up to ms for a key (0 = until a key arrives). Sets *quit when the user quits. */
     ft_key (*poll)(int ms, int *quit);
@@ -30,6 +34,8 @@ typedef struct {
     void (*live)(const live *l, player *p, const shell *s);
     /* Thread-safe: makes a waiting poll() return FT_NONE now. May be NULL. */
     void (*wake)(void *ctx);
+    /* 1 while the window fills the screen (F11 toggles it). */
+    int (*is_fullscreen)(void);
 } sim_frontend;
 
 extern const sim_frontend frontend_text;

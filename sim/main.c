@@ -20,10 +20,16 @@
 #include "session.h"
 #include "shell.h"
 
-#define DEFAULT_DATA_DIR "out/simdata"
 #define FRAME_MS (1000 / FT_TICK_HZ)
 
-static const char *data_dir = DEFAULT_DATA_DIR;
+#ifdef _WIN32
+#define EXE ".exe"
+#else
+#define EXE ""
+#endif
+
+static char data_dir[512] = "out/simdata";
+static char base_dir[512]; /* "" = current folder; else ends in a separator */
 static player *pl;
 static player_prefs prefs;
 static int quit_req;
@@ -108,8 +114,24 @@ static void time_up(session *ss, shell *s)
 
 static const char *data_path(char *out, size_t n, const char *file)
 {
-    snprintf(out, n, "%s/%s", data_dir, file);
+    size_t len = strlen(data_dir);
+    int sep = len > 0 && (data_dir[len - 1] == '/' || data_dir[len - 1] == '\\');
+    snprintf(out, n, "%s%s%s", data_dir, sep ? "" : "/", file);
     return out;
+}
+
+static const char *base_path(char *out, size_t n, const char *file)
+{
+    snprintf(out, n, "%s%s", base_dir, file);
+    return out;
+}
+
+static int file_exists(const char *path)
+{
+    FILE *f = fopen(path, "rb");
+    if (f)
+        fclose(f);
+    return f != NULL;
 }
 
 static void save_note(char *status, size_t n, int r, const char *what)
@@ -341,13 +363,40 @@ static void run_live(session *ss, shell *s, int index)
     save_prefs();
 }
 
-static player *make_player(int want_stub, const char *ytdl_path)
+/* yt-dlp and deno ship next to the program on Windows; on a development
+ * Mac they come from Homebrew, which a Finder launch leaves off PATH. */
+static const char *find_tool(char *out, size_t n, const char *name)
 {
+    static const char *const dirs[] = {"/opt/homebrew/bin/", "/usr/local/bin/"};
+    size_t i;
+    char file[64];
+    snprintf(file, sizeof file, "%s%s", name, EXE);
+    if (file_exists(base_path(out, n, file)))
+        return out;
+    for (i = 0; i < sizeof dirs / sizeof dirs[0]; i++) {
+        snprintf(out, n, "%s%s", dirs[i], file);
+        if (file_exists(out))
+            return out;
+    }
+    return NULL;
+}
+
+static player *make_player(int want_stub, const char *ytdl_path, int verbose)
+{
+    static char ytdl[512], deno[512], js_dir[512];
     player_config pc;
     player *p = NULL;
     char log_path[512];
     memset(&pc, 0, sizeof pc);
-    pc.ytdl_path = ytdl_path;
+    pc.ytdl_path = ytdl_path ? ytdl_path : find_tool(ytdl, sizeof ytdl, "yt-dlp");
+    if (find_tool(deno, sizeof deno, "deno")) {
+        char *slash = strrchr(deno, '/'), *bslash = strrchr(deno, '\\');
+        if (bslash > slash)
+            slash = bslash;
+        snprintf(js_dir, sizeof js_dir, "%.*s", slash ? (int)(slash - deno) : 0, deno);
+        pc.js_dir = js_dir[0] ? js_dir : ".";
+    }
+    pc.verbose = verbose;
     pc.log_path = data_path(log_path, sizeof log_path, "familytv.log");
     pc.max_height = 480;
     pc.volume = prefs.volume;
@@ -365,12 +414,14 @@ static player *make_player(int want_stub, const char *ytdl_path)
 static void load_config(shell_config *c, char *warn, size_t n)
 {
     char data_ch[512];
-    const char *paths[2];
+    char base_ch[512];
+    const char *paths[3];
     int last;
     memset(c, 0, sizeof *c);
     paths[0] = data_path(data_ch, sizeof data_ch, "channels.txt");
-    paths[1] = "assets/channels.txt"; /* running from the source folder */
-    channels_load(&c->channels, paths, 2, warn, n);
+    paths[1] = base_path(base_ch, sizeof base_ch, "channels.txt");
+    paths[2] = "assets/channels.txt"; /* running from the source folder */
+    channels_load(&c->channels, paths, 3, warn, n);
     last = channels_find_number(&c->channels, prefs.last_channel);
     c->last_channel = last >= 0 ? last : 0;
 }
@@ -378,7 +429,7 @@ static void load_config(shell_config *c, char *warn, size_t n)
 static void usage(void)
 {
     fprintf(stderr,
-            "usage: familytv [--data DIR] [--player stub|mpv] [--ytdl PATH]\n"
+            "usage: familytv [--data DIR] [--fullscreen] [--player stub|mpv] [--ytdl PATH] [--verbose]\n"
             "                [--keys K,K,...] [--dump-frame FILE.ppm]\n"
             "  keys: L R U D OK BACK W (wait 1s) Wn (wait n ticks); scripted runs use the stub player\n");
 }
@@ -394,7 +445,8 @@ int main(int argc, char **argv)
     shell_config cfg;
     static shell s;
     static session ss;
-    int i, r_load, want_stub = 0;
+    int i, r_load, want_stub = 0, verbose = 0, fullscreen = 0;
+    const char *data_arg = NULL;
     const char *ytdl_path = NULL;
     char warn[160] = "";
     static char keybuf[4096];
@@ -403,7 +455,11 @@ int main(int argc, char **argv)
         if (!strcmp(argv[i], "--dump-frame") && i + 1 < argc) {
             sim_dump_path = argv[++i];
         } else if (!strcmp(argv[i], "--data") && i + 1 < argc) {
-            data_dir = argv[++i];
+            data_arg = argv[++i];
+        } else if (!strcmp(argv[i], "--fullscreen")) {
+            fullscreen = 1;
+        } else if (!strcmp(argv[i], "--verbose")) {
+            verbose = 1;
         } else if (!strcmp(argv[i], "--player") && i + 1 < argc) {
             want_stub = !strcmp(argv[++i], "stub");
         } else if (!strcmp(argv[i], "--ytdl") && i + 1 < argc) {
@@ -420,7 +476,11 @@ int main(int argc, char **argv)
         }
     }
 
-    plat_mkdir("out");
+    fe->folders(data_dir, sizeof data_dir, base_dir, sizeof base_dir);
+    if (data_arg || !data_dir[0]) {
+        plat_mkdir("out");
+        snprintf(data_dir, sizeof data_dir, "%s", data_arg ? data_arg : "out/simdata");
+    }
     plat_mkdir(data_dir);
     {
         char path[512];
@@ -435,9 +495,9 @@ int main(int argc, char **argv)
     save_note(s.status, sizeof s.status, r_load, "Settings");
     if (warn[0] && !s.status[0])
         snprintf(s.status, sizeof s.status, "%s", warn);
-    if (fe->open(script_mode) != 0)
+    if (fe->open(script_mode, (fullscreen || prefs.fullscreen) && !script_mode) != 0)
         return 1;
-    pl = make_player(want_stub || script_mode, ytdl_path);
+    pl = make_player(want_stub || script_mode, ytdl_path, verbose);
     if (!pl) {
         fe->close();
         fprintf(stderr, "out of memory\n");
@@ -462,6 +522,10 @@ int main(int argc, char **argv)
             run_live(&ss, &s, ss.watch_channel);
     }
     player_destroy(pl);
+    if (!script_mode) {
+        prefs.fullscreen = fe->is_fullscreen();
+        save_prefs();
+    }
     fe->close();
     return 0;
 }

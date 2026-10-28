@@ -21,9 +21,16 @@ static void raw_off(void)
     }
 }
 
-static int text_open(int scripted)
+static void text_folders(char *data, size_t data_n, char *base, size_t base_n)
+{
+    snprintf(data, data_n, "out/simdata");
+    snprintf(base, base_n, "%s", "");
+}
+
+static int text_open(int scripted, int fullscreen)
 {
     struct termios t;
+    (void)fullscreen;
     if (scripted || tcgetattr(0, &orig_term) != 0)
         return 0;
     t = orig_term;
@@ -109,6 +116,12 @@ static void text_live(const live *l, player *p, const shell *s)
     render_live(l, player_get(p), s);
 }
 
+static int text_is_fullscreen(void)
+{
+    return 0;
+}
+
 const sim_frontend frontend_text = {
-    "text", text_open, raw_off, text_poll, render_shell, text_racer, text_penalty, text_garden, text_live, NULL
+    "text", text_folders, text_open, raw_off, text_poll, render_shell, text_racer, text_penalty, text_garden,
+    text_live, NULL, text_is_fullscreen
 };
