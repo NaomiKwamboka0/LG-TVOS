@@ -13,7 +13,7 @@ CORE_HDR := $(wildcard games/*.h ui/*.h platform/*.h services/*.h sim/*.h third_
 TEST_SRC := tests/unit/test_core.c tests/unit/test_services.c tests/unit/test_view.c
 SIM_SRC := $(CORE_SRC) platform/sim.c sim/render_text.c sim/frontend_text.c sim/main.c
 
-# Optional desktop window (SDL2, development computer only: brew install sdl2).
+# Desktop window (SDL2: brew install sdl2).
 SDL_CONFIG := $(shell command -v sdl2-config 2>/dev/null)
 ifneq ($(SDL_CONFIG),)
 SDL_CFLAGS := $(patsubst -I%,-isystem %,$(shell sdl2-config --cflags))
@@ -21,49 +21,34 @@ SDL_LIBS := $(shell sdl2-config --libs)
 WINDOW_CHECK := window-smoke
 endif
 
-.PHONY: all host-probe target-probe sim run-sim window run-window window-smoke smoke screens bench fonts check-fonts test c-test py-test validate install-check clean
+.PHONY: all term run-term window run window-smoke smoke screens bench fonts check-fonts test clean
 
-all: host-probe check-fonts test smoke $(WINDOW_CHECK) validate
+all: check-fonts test smoke $(WINDOW_CHECK)
 
-host-probe:
-	mkdir -p $(OUT)/host
-	$(CC) -O2 -Wall -Wextra -DBUILD_ID='"$(BUILD_ID)"' -o $(OUT)/host/probe probe/probe.c
-	$(OUT)/host/probe
+term: $(OUT)/host/familytv-term
 
-# Cross-build is blocked until gate I03 records a verified ABI/toolchain
-# (evidence/hardware.json install.abi). Never guess -mfloat-abi or -mfpu.
-target-probe:
-	@if [ -z "$(CROSS_CC)" ]; then \
-	  echo "BLOCKED: CROSS_CC not set; target ABI not yet verified on the TV (gate I03)"; exit 1; fi
-	mkdir -p $(OUT)/target
-	$(CROSS_CC) -O2 -Wall -DBUILD_ID='"$(BUILD_ID)"' -DBUILD_TARGET='"lg32lb580v"' -o $(OUT)/target/probe probe/probe.c
-	file $(OUT)/target/probe
-	shasum -a 256 $(OUT)/target/probe
-
-sim: $(OUT)/host/family-tv-sim
-
-$(OUT)/host/family-tv-sim: $(SIM_SRC) $(CORE_HDR)
+$(OUT)/host/familytv-term: $(SIM_SRC) $(CORE_HDR)
 	mkdir -p $(OUT)/host
 	$(CC) $(CFLAGS) $(WARN) $(INC) -o $@ $(SIM_SRC)
 
-run-sim: sim
-	$(OUT)/host/family-tv-sim --demo-received
+run-term: term
+	$(OUT)/host/familytv-term --demo-received
 
-window: $(OUT)/host/family-tv-window
+window: $(OUT)/host/familytv
 
-$(OUT)/host/family-tv-window: $(SIM_SRC) sim/frontend_window.c $(CORE_HDR)
+$(OUT)/host/familytv: $(SIM_SRC) sim/frontend_window.c $(CORE_HDR)
 	@if [ -z "$(SDL_CONFIG)" ]; then echo "SDL2 not found: brew install sdl2"; exit 1; fi
 	mkdir -p $(OUT)/host
 	$(CC) $(CFLAGS) $(WARN) $(INC) $(SDL_CFLAGS) -DFT_WINDOW -o $@ $(SIM_SRC) sim/frontend_window.c $(SDL_LIBS)
 
-# Play the pixel version in a window: arrows, Enter = OK, Backspace/Esc = Back, q = quit.
-run-window: window
-	$(OUT)/host/family-tv-window --demo-received
+# Family TV in a window: arrows, Enter = OK, Backspace/Esc = Back, q = quit.
+run: window
+	$(OUT)/host/familytv --demo-received
 
 # Headless check of the window build: scripted keys, SDL dummy video driver, last frame dumped.
 window-smoke: window
 	rm -rf $(OUT)/wsmoke $(OUT)/wsmoke.ppm
-	SDL_VIDEODRIVER=dummy $(OUT)/host/family-tv-window --demo-received --data $(OUT)/wsmoke \
+	SDL_VIDEODRIVER=dummy $(OUT)/host/familytv --demo-received --data $(OUT)/wsmoke \
 	  --dump-frame $(OUT)/wsmoke.ppm --keys R,R,OK,OK,OK,W90
 	python3 -I tools/ppm2png.py $(OUT) $(OUT)/wsmoke.ppm > /dev/null
 	@echo "window-smoke: OK ($(OUT)/wsmoke.png)"
@@ -71,13 +56,13 @@ window-smoke: window
 # Scripted walks with throwaway data folders (never the interactive out/simdata).
 # 1: Football -> SportyTV fallback, then Games -> Racer start/pause/exit.
 # 2: More -> Parent settings -> create PIN 0000 twice -> switch language to Kiswahili.
-smoke: sim
+smoke: term
 	rm -rf $(OUT)/smoke1 $(OUT)/smoke2
-	$(OUT)/host/family-tv-sim --demo-received --data $(OUT)/smoke1 \
+	$(OUT)/host/familytv-term --demo-received --data $(OUT)/smoke1 \
 	  --keys R,OK,D,D,OK,BACK,R,OK,OK,OK,W60,BACK,BACK > $(OUT)/smoke1.txt
 	grep -q "channel list" $(OUT)/smoke1.txt
 	grep -q "Family Racer" $(OUT)/smoke1.txt
-	$(OUT)/host/family-tv-sim --data $(OUT)/smoke2 \
+	$(OUT)/host/familytv-term --data $(OUT)/smoke2 \
 	  --keys D,OK,D,D,OK,OK,OK,OK,OK,OK,OK,OK,OK,OK > $(OUT)/smoke2.txt
 	grep -q "Choose a new 4-digit parent PIN" $(OUT)/smoke2.txt
 	grep -q "Parent PIN saved" $(OUT)/smoke2.txt
@@ -90,7 +75,7 @@ FONT_SPECS := font_display=$(INTER)/InterDisplay-Bold.ttf:46 font_title=$(INTER)
               font_label=$(INTER)/Inter-SemiBold.ttf:24 font_body=$(INTER)/Inter-Medium.ttf:20 \
               font_caption=$(INTER)/Inter-Medium.ttf:18
 
-# Host-only font baker (stb_truetype); the TV build never parses fonts.
+# Font baker (stb_truetype); the app itself never parses fonts.
 $(OUT)/host/fontbake: tools/fontbake.c third_party/stb/stb_truetype.h
 	mkdir -p $(OUT)/host
 	$(CC) -O2 -w -Ithird_party/stb -o $@ tools/fontbake.c -lm
@@ -106,20 +91,20 @@ check-fonts: $(OUT)/host/fontbake
 	@echo "fonts: OK"
 
 # Render every screen to docs/screens/*.png for review.
-screens: $(OUT)/host/family-tv-shots
+screens: $(OUT)/host/familytv-shots
 	rm -rf $(OUT)/screens
-	$(OUT)/host/family-tv-shots $(OUT)/screens > /dev/null
+	$(OUT)/host/familytv-shots $(OUT)/screens > /dev/null
 	python3 -I tools/ppm2png.py docs/screens $(OUT)/screens/*.ppm
 
-# Milliseconds per frame for each screen on this computer (the TV will be slower).
-bench: $(OUT)/host/family-tv-bench
-	$(OUT)/host/family-tv-bench
+# Milliseconds per frame for each screen on this computer.
+bench: $(OUT)/host/familytv-bench
+	$(OUT)/host/familytv-bench
 
-$(OUT)/host/family-tv-bench: $(CORE_SRC) platform/sim.c sim/bench.c $(CORE_HDR)
+$(OUT)/host/familytv-bench: $(CORE_SRC) platform/sim.c sim/bench.c $(CORE_HDR)
 	mkdir -p $(OUT)/host
 	$(CC) -O2 $(WARN) $(INC) -o $@ $(CORE_SRC) platform/sim.c sim/bench.c
 
-$(OUT)/host/family-tv-shots: $(CORE_SRC) platform/sim.c sim/shots.c $(CORE_HDR)
+$(OUT)/host/familytv-shots: $(CORE_SRC) platform/sim.c sim/shots.c $(CORE_HDR)
 	mkdir -p $(OUT)/host
 	$(CC) $(CFLAGS) $(WARN) $(INC) -o $@ $(CORE_SRC) platform/sim.c sim/shots.c
 
@@ -127,19 +112,8 @@ $(OUT)/host/test-core: $(CORE_SRC) platform/sim.c $(TEST_SRC) tests/unit/check.h
 	mkdir -p $(OUT)/host
 	$(CC) $(CFLAGS) $(WARN) $(INC) -Itests/unit -fsanitize=address,undefined -o $@ $(CORE_SRC) platform/sim.c $(TEST_SRC)
 
-c-test: $(OUT)/host/test-core
+test: $(OUT)/host/test-core
 	$(OUT)/host/test-core
-
-py-test:
-	python3 -m unittest discover -s tests/unit -v
-
-test: c-test py-test
-
-validate:
-	python3 tools/validate_manifest.py evidence/hardware.json
-
-install-check:
-	python3 tools/validate_manifest.py --install-ready evidence/hardware.json
 
 clean:
 	rm -rf $(OUT)
