@@ -16,9 +16,15 @@ typedef uint32_t ft_color; /* 0xAARRGGBB; alpha 0xFF = opaque */
 
 typedef struct {
     uint32_t *px;
-    int w, h;
+    int w, h;   /* physical pixels */
     int stride; /* pixels per row */
+    int scale;  /* physical pixels per logical pixel, in halves: CANVAS_1X ... */
 } ft_canvas;
+
+/* Drawing is in logical pixels (the 1280x720 layout); the scale maps them
+ * onto the real screen. Text is laid out with the 1x metrics and drawn
+ * with fonts rasterised at the real size (font_scaled). */
+enum { CANVAS_1X = 2, CANVAS_1_5X = 3, CANVAS_2X = 4, CANVAS_3X = 6 };
 
 typedef struct {
     int x, y, w, h;
@@ -31,11 +37,13 @@ enum { CORNER_TL = 1, CORNER_TR = 2, CORNER_BL = 4, CORNER_BR = 8, CORNERS_ALL =
 ft_color color_alpha(ft_color c, unsigned alpha); /* replace alpha (0-255) */
 ft_color color_mix(ft_color a, ft_color b, unsigned t); /* t: 0 = a, 255 = b */
 
-void canvas_init(ft_canvas *c, uint32_t *px, int w, int h, int stride);
+void canvas_init(ft_canvas *c, uint32_t *px, int w, int h, int stride); /* scale 1x */
+void canvas_set_scale(ft_canvas *c, int scale);
+/* Physical pixel (tests and frame dumps). */
 ft_color canvas_get(const ft_canvas *c, int x, int y);
 void canvas_clear(ft_canvas *c, ft_color color);
 
-/* All of the following blend using the colour's alpha. */
+/* All of the following take logical coordinates and blend using the colour's alpha. */
 void canvas_fill(ft_canvas *c, ft_rect r, ft_color color);
 void canvas_gradient(ft_canvas *c, ft_rect r, ft_color top, ft_color bottom);
 void canvas_round(ft_canvas *c, ft_rect r, int radius, ft_color color);
@@ -48,7 +56,7 @@ void canvas_ring(ft_canvas *c, int cx, int cy, int radius, int thickness, ft_col
 void canvas_shadow(ft_canvas *c, ft_rect r, int blur, ft_color color);
 /* Radial soft glow filling an ellipse, strongest in the centre. */
 void canvas_glow(ft_canvas *c, int cx, int cy, int rx, int ry, ft_color color);
-/* Same falloff as canvas_glow, accumulated into an 8-bit w x h alpha mask
+/* Same falloff as canvas_glow (in the mask's own pixels), accumulated into an 8-bit w x h alpha mask
  * (alphas combine like stacked layers), so a fixed glow layout can be
  * recoloured cheaply. */
 void canvas_glow_mask(uint8_t *mask, int w, int h, int cx, int cy, int rx, int ry, unsigned alpha);
@@ -71,7 +79,7 @@ int canvas_text_wrap(ft_canvas *c, const ft_font *f, ft_rect r, const char *text
 void canvas_text_center(ft_canvas *c, const ft_font *f, ft_rect r, const char *text, ft_color color);
 void canvas_text_right(ft_canvas *c, const ft_font *f, int right_x, int y, const char *text, ft_color color);
 
-/* FNV-1a over visible pixels, for rendering regression tests. */
+/* FNV-1a over physical pixels, for rendering regression tests. */
 uint32_t canvas_hash(const ft_canvas *c);
 
 #endif

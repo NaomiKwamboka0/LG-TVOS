@@ -86,6 +86,37 @@ static void test_wide_glow(void)
     CHECK(canvas_get(&c, 640 - 300, 360) == canvas_get(&c, 640 + 299, 360)); /* symmetric */
 }
 
+/* Big screens: logical shapes land on the right physical pixels, and text
+ * drawn from the scaled fonts covers the same area as at 1x, scaled. */
+static void test_scaled_canvas(void)
+{
+    static uint32_t px[1920 * 1080];
+    ft_canvas c;
+    ft_rect sq = {10, 10, 20, 20};
+    int x, y, ink_x0 = 9999, ink_x1 = -1;
+    canvas_init(&c, px, 1920, 1080, 1920);
+    canvas_set_scale(&c, CANVAS_1_5X);
+    canvas_clear(&c, 0xFF000000u);
+    canvas_fill(&c, sq, 0xFFFFFFFFu);
+    CHECK(canvas_get(&c, 15, 15) == 0xFFFFFFFFu && canvas_get(&c, 44, 44) == 0xFFFFFFFFu);
+    CHECK(canvas_get(&c, 14, 15) == 0xFF000000u && canvas_get(&c, 45, 44) == 0xFF000000u);
+
+    CHECK(font_scale_init("assets/fonts/inter/") == 0 && font_scale_ready());
+    CHECK(font_scaled(&font_label, CANVAS_1_5X)->size == 36);
+    CHECK(font_scaled(&font_label, CANVAS_1X) == &font_label);
+    canvas_clear(&c, 0xFF000000u);
+    CHECK(canvas_text(&c, &font_label, 100, 100, "Citizen TV", COL_TEXT) == 100 + text_width(&font_label, "Citizen TV"));
+    for (y = 140; y < 200; y++)
+        for (x = 100; x < 600; x++)
+            if (canvas_get(&c, x, y) != 0xFF000000u) {
+                if (x < ink_x0) ink_x0 = x;
+                if (x > ink_x1) ink_x1 = x;
+            }
+    CHECK(ink_x0 >= 150 && ink_x0 <= 156); /* starts at 100 * 1.5 */
+    CHECK(ink_x1 - 150 >= text_width(&font_label, "Citizen TV") * 3 / 2 - 6 &&
+          ink_x1 - 150 <= text_width(&font_label, "Citizen TV") * 3 / 2 + 2);
+}
+
 static int has_ink(const ft_canvas *c, int x0, int x1, int y0, int y1, ft_color bg)
 {
     int x, y;
@@ -270,9 +301,15 @@ static void test_all_views_all_states(void)
     static garden g;
     racer r;
     penalty p;
-    int lang, scr, st, ph, mode, f, e;
-    canvas_init(&c, screen, VIEW_W, VIEW_H, VIEW_W);
+    static uint32_t big_screen[3840 * 2160];
+    int lang, scr, st, ph, mode, f, e, k;
+    for (k = 0; k < 3; k++)
     for (lang = 0; lang < LANG_COUNT; lang++) {
+        static const int scales[3] = {CANVAS_1X, CANVAS_1_5X, CANVAS_3X};
+        if (k == 2 && lang > 0) /* 4K is slow under the sanitizers: one language is enough */
+            continue;
+        canvas_init(&c, big_screen, VIEW_W * scales[k] / 2, VIEW_H * scales[k] / 2, VIEW_W * scales[k] / 2);
+        canvas_set_scale(&c, scales[k]);
         base(&cfg);
         cfg.lang = (ft_lang)lang;
         cfg.channels.n = lang ? cfg.channels.n : 0; /* also cover "no channels" */
@@ -335,6 +372,7 @@ static void test_all_views_all_states(void)
 void run_view_tests(void)
 {
     test_wide_glow();
+    test_scaled_canvas();
     test_canvas_never_writes_outside();
     test_blending_and_colour();
     test_fonts_and_kerning();

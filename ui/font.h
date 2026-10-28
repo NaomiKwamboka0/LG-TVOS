@@ -1,10 +1,11 @@
 #ifndef FT_FONT_H
 #define FT_FONT_H
 
-/* Anti-aliased proportional fonts, pre-rendered on the computer from Inter
- * 4.1 (SIL OFL 1.1) by tools/fontbake.c. The TV only blends ready-made
- * 4-bit alpha glyphs; it never parses font files. ASCII 32-126 only; other
- * bytes draw as '?'. Kiswahili needs no accented letters. */
+/* Anti-aliased proportional fonts from Inter 4.1 (SIL OFL 1.1). The 1x
+ * (720p) fonts are pre-rendered into ui/font_ui_data.c by tools/fontbake.c
+ * and always available; sharper copies for bigger screens are rasterised
+ * from the TTF files at start-up (font_scale_init). ASCII 32-126 only;
+ * other bytes draw as '?'. Kiswahili needs no accented letters. */
 
 #include <stdint.h>
 
@@ -37,5 +38,13 @@ extern const ft_font font_title;   /* Inter SemiBold 30: section titles, big num
 extern const ft_font font_label;   /* Inter SemiBold 24: tile names, list rows */
 extern const ft_font font_body;    /* Inter Medium 20: values and descriptions */
 extern const ft_font font_caption; /* Inter Medium 18: hints */
+
+/* Loads the Inter TTFs from dir (ending in a separator). 0 when all four
+ * were read; otherwise only the 1x fonts are available. */
+int font_scale_init(const char *dir);
+/* The copy of f for a canvas scale (CANVAS_*), made on first use; f itself
+ * at 1x or when the TTFs are missing. */
+const ft_font *font_scaled(const ft_font *f, int scale);
+int font_scale_ready(void);
 
 #endif

@@ -1,6 +1,7 @@
 #include "view.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "art.h"
@@ -44,9 +45,11 @@ static ft_rect lift(ft_rect r, int dx, int dy)
 /* The glowing backdrop is the most expensive layer. The glow shape depends
  * only on the screen layout, so its alpha mask is built once per layout and
  * recoloured per accent; the finished backdrop is kept until the accent
- * changes. Buffers: 3.5 MiB + 0.9 MiB of the plan's render budget (p.24). */
-static uint32_t backdrop_cache[VIEW_W * VIEW_H];
-static uint8_t glow_mask[VIEW_W * VIEW_H];
+ * changes. Both work in physical pixels, so the buffers follow the screen
+ * size (about 41 MB at 4K, 4.5 MB at 720p). */
+static uint32_t *backdrop_cache;
+static uint8_t *glow_mask;
+static int cache_w, cache_h;
 static struct {
     int valid, glow_x, glow_y, fade;
     ft_color accent;
@@ -55,22 +58,49 @@ static struct {
     int valid, glow_x, glow_y;
 } mask_key;
 
+static int backdrop_buffers(int w, int h)
+{
+    if (w == cache_w && h == cache_h && backdrop_cache)
+        return 1;
+    free(backdrop_cache);
+    free(glow_mask);
+    backdrop_cache = (uint32_t *)malloc((size_t)w * (size_t)h * sizeof(uint32_t));
+    glow_mask = (uint8_t *)malloc((size_t)w * (size_t)h);
+    backdrop_key.valid = mask_key.valid = 0;
+    if (!backdrop_cache || !glow_mask) {
+        free(backdrop_cache);
+        free(glow_mask);
+        backdrop_cache = NULL;
+        glow_mask = NULL;
+        cache_w = cache_h = 0;
+        return 0;
+    }
+    cache_w = w;
+    cache_h = h;
+    return 1;
+}
+
 static void backdrop(ft_canvas *c, ft_color accent, int glow_x, int glow_y, int fade)
 {
-    ft_rect low = {0, 360, VIEW_W, VIEW_H - 360};
-    int y;
-    if (c->w != VIEW_W || c->h != VIEW_H)
+    int W = c->w, H = c->h, k = c->scale, y;
+    int low_y = 360 * k / 2, low_h = H - low_y;
+    if (W * 2 != VIEW_W * k || H * 2 != VIEW_H * k)
         return;
+    if (!backdrop_buffers(W, H)) {
+        canvas_clear(c, COL_BG);
+        return;
+    }
     if (backdrop_key.valid && backdrop_key.accent == accent && backdrop_key.glow_x == glow_x &&
         backdrop_key.glow_y == glow_y && backdrop_key.fade == fade) {
-        for (y = 0; y < VIEW_H; y++)
-            memcpy(c->px + (long)y * c->stride, backdrop_cache + (long)y * VIEW_W, VIEW_W * sizeof(uint32_t));
+        for (y = 0; y < H; y++)
+            memcpy(c->px + (long)y * c->stride, backdrop_cache + (long)y * W, (size_t)W * sizeof(uint32_t));
         return;
     }
     if (!mask_key.valid || mask_key.glow_x != glow_x || mask_key.glow_y != glow_y) {
-        memset(glow_mask, 0, sizeof glow_mask);
-        canvas_glow_mask(glow_mask, VIEW_W, VIEW_H, glow_x, glow_y, 820, 470, 0x7A);
-        canvas_glow_mask(glow_mask, VIEW_W, VIEW_H, VIEW_W - glow_x / 3, glow_y - 60, 520, 300, 0x2E);
+        memset(glow_mask, 0, (size_t)W * (size_t)H);
+        canvas_glow_mask(glow_mask, W, H, glow_x * k / 2, glow_y * k / 2, 820 * k / 2, 470 * k / 2, 0x7A);
+        canvas_glow_mask(glow_mask, W, H, (VIEW_W - glow_x / 3) * k / 2, (glow_y - 60) * k / 2, 520 * k / 2,
+                         300 * k / 2, 0x2E);
         mask_key.valid = 1;
         mask_key.glow_x = glow_x;
         mask_key.glow_y = glow_y;
@@ -78,15 +108,15 @@ static void backdrop(ft_canvas *c, ft_color accent, int glow_x, int glow_y, int 
     /* Each row is one gradient colour, so every pixel is that colour mixed
      * towards the accent by its mask value: a 256-entry table per row turns
      * the whole layer into lookups. The home fade is folded into the table. */
-    for (y = 0; y < VIEW_H; y++) {
+    for (y = 0; y < H; y++) {
         uint32_t lut[256], *row = c->px + (long)y * c->stride;
-        ft_color base = color_mix(COL_BG_TOP, COL_BG_BOTTOM, (unsigned)(y * 255 / (VIEW_H - 1)));
+        ft_color base = color_mix(COL_BG_TOP, COL_BG_BOTTOM, (unsigned)(y * 255 / (H - 1)));
         ft_color lit = accent | 0xFF000000u;
-        const uint8_t *m = glow_mask + (long)y * VIEW_W;
+        const uint8_t *m = glow_mask + (long)y * W;
         long acc[3], step[3];
         int ch, i, x;
-        if (fade && y >= low.y) { /* keeps the app row legible over a bright shelf */
-            unsigned f = (unsigned)((y - low.y) * 0xB3 / (low.h - 1));
+        if (fade && y >= low_y) { /* keeps the lower rows legible over a bright glow */
+            unsigned f = (unsigned)((y - low_y) * 0xB3 / (low_h - 1));
             base = color_mix(base, COL_BG_BOTTOM, f);
             lit = color_mix(lit, COL_BG_BOTTOM, f);
         }
@@ -101,11 +131,11 @@ static void backdrop(ft_canvas *c, ft_color accent, int glow_x, int glow_y, int 
             for (ch = 0; ch < 3; ch++)
                 acc[ch] += step[ch];
         }
-        for (x = 0; x < VIEW_W; x++)
+        for (x = 0; x < W; x++)
             row[x] = lut[m[x]];
     }
-    for (y = 0; y < VIEW_H; y++)
-        memcpy(backdrop_cache + (long)y * VIEW_W, c->px + (long)y * c->stride, VIEW_W * sizeof(uint32_t));
+    for (y = 0; y < H; y++)
+        memcpy(backdrop_cache + (long)y * W, c->px + (long)y * c->stride, (size_t)W * sizeof(uint32_t));
     backdrop_key.valid = 1;
     backdrop_key.accent = accent;
     backdrop_key.glow_x = glow_x;
@@ -189,11 +219,12 @@ ft_rect view_top_rect(const shell *s, int item)
         }
         return r;
     }
-    /* Right side, left to right: gear, profile chip, then the clock. */
+    /* Right side, left to right: gear, profile chip, then the clock
+     * ("00:00" in font_body is about 55 px wide). */
     r.w = item == TOP_PROFILE ? chip_w : TOP_H;
-    r.x = VIEW_W - VIEW_MARGIN - 112 - chip_w; /* room for the clock */
-    if (item == TOP_PROFILE)
-        r.x += TOP_H + 12;
+    r.x = VIEW_W - VIEW_MARGIN - 64 - 20 - chip_w;
+    if (item == TOP_GEAR)
+        r.x -= TOP_H + 12;
     return r;
 }
 

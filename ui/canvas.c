@@ -54,6 +54,37 @@ void canvas_init(ft_canvas *c, uint32_t *px, int w, int h, int stride)
     c->w = w;
     c->h = h;
     c->stride = stride;
+    c->scale = CANVAS_1X;
+}
+
+void canvas_set_scale(ft_canvas *c, int scale)
+{
+    c->scale = scale >= CANVAS_1X ? scale : CANVAS_1X;
+}
+
+/* Logical to physical: v * scale / 2, rounding down (also below zero), so
+ * shapes that touch in logical units still touch on screen. */
+static int ps(const ft_canvas *c, int v)
+{
+    long t = (long)v * c->scale;
+    return (int)(t >= 0 ? t / 2 : -((-t + 1) / 2));
+}
+
+static ft_rect pr(const ft_canvas *c, ft_rect r)
+{
+    ft_rect o;
+    o.x = ps(c, r.x);
+    o.y = ps(c, r.y);
+    o.w = ps(c, r.x + r.w) - o.x;
+    o.h = ps(c, r.y + r.h) - o.y;
+    return o;
+}
+
+/* Lengths (radii, thickness, blur): never shrink a visible line to 0. */
+static int pl(const ft_canvas *c, int v)
+{
+    int p = ps(c, v);
+    return v > 0 && p < 1 ? 1 : p;
 }
 
 ft_color canvas_get(const ft_canvas *c, int x, int y)
@@ -93,14 +124,14 @@ void canvas_clear(ft_canvas *c, ft_color color)
             c->px[(long)y * c->stride + x] = color | 0xFF000000u;
 }
 
-void canvas_fill(ft_canvas *c, ft_rect r, ft_color color)
+static void canvas_fill_px(ft_canvas *c, ft_rect r, ft_color color)
 {
     int y;
     for (y = r.y; y < r.y + r.h; y++)
         span(c, r.x, r.x + r.w, y, color);
 }
 
-void canvas_gradient(ft_canvas *c, ft_rect r, ft_color top, ft_color bottom)
+static void canvas_gradient_px(ft_canvas *c, ft_rect r, ft_color top, ft_color bottom)
 {
     int dy;
     for (dy = 0; dy < r.h; dy++)
@@ -157,7 +188,7 @@ static int clamp_radius(ft_rect r, int radius)
     return radius < 0 ? 0 : radius;
 }
 
-void canvas_round_gradient(ft_canvas *c, ft_rect r, int radius, unsigned corners, ft_color top, ft_color bottom)
+static void canvas_round_gradient_px(ft_canvas *c, ft_rect r, int radius, unsigned corners, ft_color top, ft_color bottom)
 {
     const uint8_t *m;
     int dy, x;
@@ -195,9 +226,9 @@ void canvas_round_gradient(ft_canvas *c, ft_rect r, int radius, unsigned corners
     }
 }
 
-void canvas_round(ft_canvas *c, ft_rect r, int radius, ft_color color)
+static void canvas_round_px(ft_canvas *c, ft_rect r, int radius, ft_color color)
 {
-    canvas_round_gradient(c, r, radius, CORNERS_ALL, color, color);
+    canvas_round_gradient_px(c, r, radius, CORNERS_ALL, color, color);
 }
 
 static uint32_t rr_coverage(ft_rect r, int radius, const uint8_t *m, int x, int y)
@@ -218,7 +249,7 @@ static uint32_t rr_coverage(ft_rect r, int radius, const uint8_t *m, int x, int 
     return (mx >= 0 && my >= 0) ? m[my * radius + mx] : 255;
 }
 
-void canvas_round_stroke(ft_canvas *c, ft_rect r, int radius, int thickness, ft_color color)
+static void canvas_round_stroke_px(ft_canvas *c, ft_rect r, int radius, int thickness, ft_color color)
 {
     ft_rect in = {r.x + thickness, r.y + thickness, r.w - 2 * thickness, r.h - 2 * thickness};
     int ro = clamp_radius(r, radius), ri, x, y;
@@ -248,10 +279,10 @@ void canvas_round_stroke(ft_canvas *c, ft_rect r, int radius, int thickness, ft_
     }
 }
 
-void canvas_circle(ft_canvas *c, int cx, int cy, int radius, ft_color color)
+static void canvas_circle_px(ft_canvas *c, int cx, int cy, int radius, ft_color color)
 {
     ft_rect r = {cx - radius, cy - radius, 2 * radius, 2 * radius};
-    canvas_round(c, r, radius, color);
+    canvas_round_px(c, r, radius, color);
 }
 
 /* ---- supersampled shapes ---------------------------------------------- */
@@ -286,7 +317,7 @@ static int in_ring(long sx, long sy, const void *p)
     return d2 <= r->rout2 && d2 >= r->rin2;
 }
 
-void canvas_ring(ft_canvas *c, int cx, int cy, int radius, int thickness, ft_color color)
+static void canvas_ring_px(ft_canvas *c, int cx, int cy, int radius, int thickness, ft_color color)
 {
     ring_ctx r;
     ft_rect box = {cx - radius - 1, cy - radius - 1, 2 * radius + 2, 2 * radius + 2};
@@ -319,7 +350,7 @@ static int in_line(long px, long py, const void *p)
     }
 }
 
-void canvas_line(ft_canvas *c, int x0, int y0, int x1, int y1, int thickness, ft_color color)
+static void canvas_line_px(ft_canvas *c, int x0, int y0, int x1, int y1, int thickness, ft_color color)
 {
     line_ctx l;
     int pad = thickness / 2 + 2;
@@ -397,12 +428,12 @@ static void polygon(ft_canvas *c, const int *xy, int npoints, long clip_cx, long
     shape(c, box, in_poly, &g, color);
 }
 
-void canvas_polygon(ft_canvas *c, const int *xy, int npoints, ft_color color)
+static void canvas_polygon_px(ft_canvas *c, const int *xy, int npoints, ft_color color)
 {
     polygon(c, xy, npoints, 0, 0, 0, color);
 }
 
-void canvas_polygon_in_circle(ft_canvas *c, const int *xy, int npoints, int cx, int cy, int radius, ft_color color)
+static void canvas_polygon_in_circle_px(ft_canvas *c, const int *xy, int npoints, int cx, int cy, int radius, ft_color color)
 {
     polygon(c, xy, npoints, 8L * cx, 8L * cy, 64L * radius * radius, color);
 }
@@ -427,10 +458,10 @@ static uint32_t ramp(int d, int blur)
     return (uint32_t)(t * t * (768 - 2 * t) / 65536 * 255 / 256);
 }
 
-#define SHADOW_MAX 4096
+#define SHADOW_MAX 8192 /* a full-width shadow or glow at 3x (4K) */
 static uint8_t shadow_fx[SHADOW_MAX];
 
-void canvas_shadow(ft_canvas *c, ft_rect r, int blur, ft_color color)
+static void canvas_shadow_px(ft_canvas *c, ft_rect r, int blur, ft_color color)
 {
     int x, y, bx, by, bw, bh;
     uint32_t a = color >> 24;
@@ -463,7 +494,7 @@ void canvas_shadow(ft_canvas *c, ft_rect r, int blur, ft_color color)
 /* 64-bit maths: long is 32 bits on Windows and d*d*65536 overflows it. */
 static int32_t glow_q[SHADOW_MAX];
 
-void canvas_glow(ft_canvas *c, int cx, int cy, int rx, int ry, ft_color color)
+static void canvas_glow_px(ft_canvas *c, int cx, int cy, int rx, int ry, ft_color color)
 {
     int x, y, x0, x1, y0, y1;
     uint32_t a = color >> 24;
@@ -520,6 +551,81 @@ void canvas_glow_mask(uint8_t *mask, int w, int h, int cx, int cy, int rx, int r
             mask[(long)y * w + x] = (uint8_t)(m + a - mul255(m, a));
         }
     }
+}
+
+
+/* ---- logical-coordinate entry points ------------------------------------ */
+
+void canvas_fill(ft_canvas *c, ft_rect r, ft_color color)
+{
+    canvas_fill_px(c, pr(c, r), color);
+}
+
+void canvas_gradient(ft_canvas *c, ft_rect r, ft_color top, ft_color bottom)
+{
+    canvas_gradient_px(c, pr(c, r), top, bottom);
+}
+
+void canvas_round(ft_canvas *c, ft_rect r, int radius, ft_color color)
+{
+    canvas_round_px(c, pr(c, r), pl(c, radius), color);
+}
+
+void canvas_round_gradient(ft_canvas *c, ft_rect r, int radius, unsigned corners, ft_color top, ft_color bottom)
+{
+    canvas_round_gradient_px(c, pr(c, r), pl(c, radius), corners, top, bottom);
+}
+
+void canvas_round_stroke(ft_canvas *c, ft_rect r, int radius, int thickness, ft_color color)
+{
+    canvas_round_stroke_px(c, pr(c, r), pl(c, radius), pl(c, thickness), color);
+}
+
+void canvas_circle(ft_canvas *c, int cx, int cy, int radius, ft_color color)
+{
+    canvas_circle_px(c, ps(c, cx), ps(c, cy), pl(c, radius), color);
+}
+
+void canvas_ring(ft_canvas *c, int cx, int cy, int radius, int thickness, ft_color color)
+{
+    canvas_ring_px(c, ps(c, cx), ps(c, cy), pl(c, radius), pl(c, thickness), color);
+}
+
+void canvas_line(ft_canvas *c, int x0, int y0, int x1, int y1, int thickness, ft_color color)
+{
+    canvas_line_px(c, ps(c, x0), ps(c, y0), ps(c, x1), ps(c, y1), pl(c, thickness), color);
+}
+
+static int scale_points(const ft_canvas *c, const int *xy, int npoints, int *out)
+{
+    int i;
+    if (npoints < 0 || npoints > MAX_POLY)
+        return 0;
+    for (i = 0; i < 2 * npoints; i++)
+        out[i] = ps(c, xy[i]);
+    return npoints;
+}
+
+void canvas_polygon(ft_canvas *c, const int *xy, int npoints, ft_color color)
+{
+    int p[2 * MAX_POLY];
+    canvas_polygon_px(c, p, scale_points(c, xy, npoints, p), color);
+}
+
+void canvas_polygon_in_circle(ft_canvas *c, const int *xy, int npoints, int cx, int cy, int radius, ft_color color)
+{
+    int p[2 * MAX_POLY];
+    canvas_polygon_in_circle_px(c, p, scale_points(c, xy, npoints, p), ps(c, cx), ps(c, cy), pl(c, radius), color);
+}
+
+void canvas_shadow(ft_canvas *c, ft_rect r, int blur, ft_color color)
+{
+    canvas_shadow_px(c, pr(c, r), pl(c, blur), color);
+}
+
+void canvas_glow(ft_canvas *c, int cx, int cy, int rx, int ry, ft_color color)
+{
+    canvas_glow_px(c, ps(c, cx), ps(c, cy), pl(c, rx), pl(c, ry), color);
 }
 
 /* ---- text --------------------------------------------------------------- */
@@ -579,14 +685,18 @@ static void draw_glyph(ft_canvas *c, const ft_glyph *g, const uint8_t *alpha, in
         }
 }
 
+/* Pens advance by the 1x metrics, so text measures the same at every
+ * scale; each glyph is drawn from the scaled font at the scaled pen. */
 static int draw_run(ft_canvas *c, const ft_font *f, int x, int y, const char *text, size_t n, ft_color color)
 {
+    const ft_font *fp = font_scaled(f, c->scale);
     long pen = (long)x * 64;
-    int baseline = y + f->ascent;
+    int baseline = ps(c, y) + (fp != f ? fp->ascent : ps(c, f->ascent));
     size_t i;
     for (i = 0; i < n; i++) {
         const ft_glyph *g = glyph_of(f, (unsigned char)text[i]);
-        draw_glyph(c, g, f->alpha, (int)((pen + 32) >> 6), baseline, color);
+        long px = pen * c->scale / 2;
+        draw_glyph(c, glyph_of(fp, (unsigned char)text[i]), fp->alpha, (int)((px + 32) >> 6), baseline, color);
         pen += g->advance;
         if (i + 1 < n)
             pen += kern(f, (unsigned char)text[i], (unsigned char)text[i + 1]);

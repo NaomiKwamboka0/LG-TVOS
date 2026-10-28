@@ -1,9 +1,12 @@
-/* Desktop window: shows the 1280x720 pixel views (ui/view.c) using SDL2,
- * scaled smoothly to the window or the whole screen. Keys: arrows,
- * Enter = OK, Backspace/Esc = Back, F11 or F = full screen, q = quit. */
+/* Desktop window: shows the pixel views (ui/view.c) using SDL2. The views
+ * are drawn at the window's real resolution: 1x (720p), 1.5x (1080p),
+ * 2x (1440p, Retina) or 3x (4K); live TV stops at 1.5x, as no channel is
+ * sharper than 1080p. Keys: arrows, Enter = OK, Backspace/Esc = Back,
+ * F11 or F = full screen, q = quit. */
 #define SDL_MAIN_HANDLED
 #include <SDL.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "frontend.h"
@@ -12,10 +15,11 @@
 static SDL_Window *window;
 static SDL_Renderer *renderer;
 static SDL_Texture *texture;
-static uint32_t pixels[VIEW_W * VIEW_H];
+static uint32_t *pixels;     /* the canvas: pw x ph physical pixels */
+static int pw, ph, scale;    /* scale: CANVAS_* in use, 0 before the first */
 /* Newest picture, kept between frames. The player's software scaler wants
- * 64-byte alignment, which C99 cannot ask of a static array. */
-static uint8_t video_store[VIEW_W * VIEW_H * 4 + 64];
+ * 64-byte alignment, which malloc does not promise. */
+static uint8_t *video_store;
 static uint32_t *video;
 static ft_canvas canvas;
 static Uint32 wake_event = (Uint32)-1;
@@ -24,7 +28,9 @@ static SDL_atomic_t wake_pending;
 
 static void present(void)
 {
-    SDL_UpdateTexture(texture, NULL, pixels, VIEW_W * (int)sizeof pixels[0]);
+    if (!texture)
+        return;
+    SDL_UpdateTexture(texture, NULL, pixels, pw * (int)sizeof pixels[0]);
     SDL_RenderClear(renderer);
     SDL_RenderCopy(renderer, texture, NULL, NULL);
     SDL_RenderPresent(renderer);
@@ -49,6 +55,59 @@ static void set_fullscreen(int on)
 static int window_is_fullscreen(void)
 {
     return window && (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN_DESKTOP) == SDL_WINDOW_FULLSCREEN_DESKTOP;
+}
+
+/* The biggest scale the window's real pixels can show (Retina and Windows
+ * display scaling count), and that fonts can be made for. */
+static int best_scale(void)
+{
+    int ow = 0, oh = 0;
+    if (!font_scale_ready() || SDL_GetRendererOutputSize(renderer, &ow, &oh) != 0)
+        return CANVAS_1X;
+    if (ow >= VIEW_W * 3 && oh >= VIEW_H * 3)
+        return CANVAS_3X;
+    if (ow >= VIEW_W * 2 && oh >= VIEW_H * 2)
+        return CANVAS_2X;
+    if (ow >= VIEW_W * 3 / 2 && oh >= VIEW_H * 3 / 2)
+        return CANVAS_1_5X;
+    return CANVAS_1X;
+}
+
+/* Sizes the canvas, texture and picture buffer for a scale. Keeps the old
+ * ones if the new ones cannot be had. */
+static void use_scale(int want)
+{
+    int w = VIEW_W * want / 2, h = VIEW_H * want / 2;
+    SDL_Texture *t;
+    uint32_t *px;
+    uint8_t *vs;
+    if (want == scale)
+        return;
+    t = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, w, h);
+    px = (uint32_t *)malloc((size_t)w * (size_t)h * sizeof *px);
+    vs = (uint8_t *)malloc((size_t)w * (size_t)h * 4 + 64);
+    if (!t || !px || !vs) {
+        if (t)
+            SDL_DestroyTexture(t);
+        free(px);
+        free(vs);
+        return;
+    }
+    if (texture)
+        SDL_DestroyTexture(texture);
+    free(pixels);
+    free(video_store);
+    texture = t;
+    pixels = px;
+    video_store = vs;
+    video = (uint32_t *)(void *)(vs + (64 - (uintptr_t)vs % 64) % 64);
+    pw = w;
+    ph = h;
+    scale = want;
+    SDL_RenderSetLogicalSize(renderer, pw, ph);
+    canvas_init(&canvas, pixels, pw, ph, pw);
+    canvas_set_scale(&canvas, scale);
+    canvas_clear(&canvas, COL_BG);
 }
 
 static int window_open(int scripted, int fullscreen)
@@ -79,20 +138,16 @@ static int window_open(int scripted, int fullscreen)
     if (window)
         renderer = SDL_CreateRenderer(window, -1, 0);
     if (renderer)
-        texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, VIEW_W,
-                                    VIEW_H);
+        use_scale(CANVAS_1X);
     if (!texture) {
         fprintf(stderr, "SDL window setup failed: %s\n", SDL_GetError());
         SDL_Quit();
         return -1;
     }
-    SDL_RenderSetLogicalSize(renderer, VIEW_W, VIEW_H);
     wake_event = SDL_RegisterEvents(1);
-    video = (uint32_t *)(void *)(video_store + (64 - (uintptr_t)video_store % 64) % 64);
     if (fullscreen)
         set_fullscreen(1);
-    canvas_init(&canvas, pixels, VIEW_W, VIEW_H, VIEW_W);
-    canvas_clear(&canvas, COL_BG);
+    use_scale(best_scale());
     present();
     return 0;
 }
@@ -105,8 +160,8 @@ static void dump_frame(const char *path)
         perror(path);
         return;
     }
-    fprintf(f, "P6\n%d %d\n255\n", VIEW_W, VIEW_H);
-    for (i = 0; i < VIEW_W * VIEW_H; i++) {
+    fprintf(f, "P6\n%d %d\n255\n", pw, ph);
+    for (i = 0; i < pw * ph; i++) {
         unsigned char rgb[3];
         rgb[0] = (unsigned char)(pixels[i] >> 16);
         rgb[1] = (unsigned char)(pixels[i] >> 8);
@@ -129,6 +184,11 @@ static void window_close(void)
     texture = NULL;
     renderer = NULL;
     window = NULL;
+    free(pixels);
+    free(video_store);
+    pixels = NULL;
+    video_store = NULL;
+    scale = 0;
     SDL_Quit();
 }
 
@@ -177,8 +237,16 @@ static ft_key window_poll(int ms, int *quit)
                 *quit = 1;
                 return FT_NONE;
             }
-            if (e.type == SDL_WINDOWEVENT)
-                present(); /* redraw after expose/resize */
+            if (e.type == SDL_WINDOWEVENT) {
+                int was = scale;
+                if (e.window.event == SDL_WINDOWEVENT_SIZE_CHANGED)
+                    use_scale(best_scale());
+                if (scale != was) {
+                    live_on_screen = 0;
+                    return FT_NONE; /* redraw at the new size */
+                }
+                present(); /* expose */
+            }
             if (e.type == wake_event) {
                 SDL_AtomicSet(&wake_pending, 0);
                 return FT_NONE;
@@ -196,8 +264,9 @@ static ft_key window_poll(int ms, int *quit)
 
 static void window_shell(const shell *s)
 {
-    live_on_screen = 0;
     char clock[8];
+    live_on_screen = 0;
+    use_scale(best_scale());
     SDL_EnableScreenSaver();
     sim_clock_text(clock, sizeof clock);
     view_shell(&canvas, s, clock);
@@ -260,8 +329,13 @@ static void window_live(const live *l, player *p, const shell *s, const channel_
     static uint32_t last_sig;
     Uint64 t0 = SDL_GetPerformanceCounter(), t1, t2;
     char clock[8];
-    int picture = player_render(p, video, VIEW_W, VIEW_H, VIEW_W);
+    int best = best_scale(), picture;
     uint32_t sig;
+    if (scale != (best > CANVAS_1_5X ? CANVAS_1_5X : best)) {
+        use_scale(best > CANVAS_1_5X ? CANVAS_1_5X : best);
+        live_on_screen = 0;
+    }
+    picture = player_render(p, video, pw, ph, pw);
     SDL_DisableScreenSaver(); /* nobody touches the keys while watching */
     sim_clock_text(clock, sizeof clock);
     sig = view_live_signature(l, player_get(p), s, chs, clock, picture != 0);
@@ -269,7 +343,7 @@ static void window_live(const live *l, player *p, const shell *s, const channel_
         return;
     t1 = SDL_GetPerformanceCounter();
     if (picture)
-        memcpy(pixels, video, sizeof pixels);
+        memcpy(pixels, video, (size_t)pw * (size_t)ph * sizeof pixels[0]);
     view_live(&canvas, l, player_get(p), s, chs, clock, picture != 0);
     t2 = SDL_GetPerformanceCounter();
     if (sim_show_stats) {

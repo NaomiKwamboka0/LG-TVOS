@@ -16,6 +16,7 @@
 #include "prefs.h"
 #include "racer.h"
 #include "sports.h"
+#include "font.h"
 #include "frontend.h"
 #include "save.h"
 #include "session.h"
@@ -569,6 +570,13 @@ int main(int argc, char **argv)
     {
         char path[512];
         prefs_load(&prefs, data_path(path, sizeof path, "player.sav"));
+    }
+    {
+        /* Sharp text on big screens: the Inter TTFs ship next to the
+         * program; in the source folder they are under assets/. */
+        char fonts[600];
+        if (font_scale_init(base_path(fonts, sizeof fonts, "fonts/")) != 0)
+            font_scale_init("assets/fonts/inter/");
     }
     load_config(&cfg, warn, sizeof warn);
     shell_init(&s, &cfg);

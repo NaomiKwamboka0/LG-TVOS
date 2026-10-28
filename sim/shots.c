@@ -11,7 +11,7 @@
 #include "player.h"
 #include "view.h"
 
-static uint32_t pixels[VIEW_W * VIEW_H];
+static uint32_t pixels[3840 * 2160]; /* up to 3x */
 static ft_canvas canvas;
 static const char *out_dir;
 static int failures;
@@ -28,8 +28,8 @@ static void save(const char *name)
         failures++;
         return;
     }
-    fprintf(f, "P6\n%d %d\n255\n", VIEW_W, VIEW_H);
-    for (i = 0; i < VIEW_W * VIEW_H; i++) {
+    fprintf(f, "P6\n%d %d\n255\n", canvas.w, canvas.h);
+    for (i = 0; i < canvas.w * canvas.h; i++) {
         unsigned char rgb[3];
         rgb[0] = (unsigned char)(pixels[i] >> 16);
         rgb[1] = (unsigned char)(pixels[i] >> 8);
@@ -148,7 +148,7 @@ static int picture(player *p, const shell *s, int ch)
     player_open(p, s->cfg.channels.ch[ch].url);
     player_pump(p, 0);
     player_pump(p, 2000);
-    return player_render(p, pixels, VIEW_W, VIEW_H, VIEW_W);
+    return player_render(p, pixels, canvas.w, canvas.h, canvas.stride);
 }
 
 static void live_shots(void)
@@ -294,9 +294,16 @@ static void garden_shots(void)
 
 int main(int argc, char **argv)
 {
+    /* familytv-shots [DIR [SCALE]]: SCALE 2 = 720p (default), 3 = 1080p, 6 = 4K */
+    int sc = argc > 2 ? atoi(argv[2]) : CANVAS_1X;
     out_dir = argc > 1 ? argv[1] : "out/screens";
     plat_mkdir(out_dir);
-    canvas_init(&canvas, pixels, VIEW_W, VIEW_H, VIEW_W);
+    if (sc != CANVAS_1_5X && sc != CANVAS_2X && sc != CANVAS_3X)
+        sc = CANVAS_1X;
+    if (sc != CANVAS_1X && font_scale_init("assets/fonts/inter/") != 0)
+        fprintf(stderr, "fonts not found: text drawn from the 1x fonts\n");
+    canvas_init(&canvas, pixels, VIEW_W * sc / 2, VIEW_H * sc / 2, VIEW_W * sc / 2);
+    canvas_set_scale(&canvas, sc);
     shell_shots();
     live_shots();
     racer_shots();
