@@ -5,18 +5,28 @@
 #include <string.h>
 
 /* Built-in line-up, used when no channels.txt is found. Keep it identical
- * to assets/channels.txt (a unit test compares them). */
+ * to assets/channels.txt (a unit test compares them).
+ *
+ * Addresses use the permanent channel ID, not the @handle: handles change,
+ * and look-alike handles belong to other channels (@citizentvkenya is
+ * Citizen Extra; @KBCChannel1 is a children's channel). Checked with
+ * tools/verify-channels.sh on 2026-10-28 22:33 EAT; live then: Citizen,
+ * NTV, KTN News, K24, TV47, Inooro. The others stream on a schedule. */
 static const struct {
     int number;
     const char *name, *url;
     uint32_t accent;
 } DEFAULTS[] = {
-    {1, "Citizen TV", "https://www.youtube.com/@citizentvkenya/live", 0xFFD32F2Fu},
-    {2, "NTV Kenya", "https://www.youtube.com/@ntvkenya/live", 0xFFC62828u},
-    {3, "KTN News", "https://www.youtube.com/@KTNNewsKE/live", 0xFF1565C0u},
-    {4, "K24 TV", "https://www.youtube.com/@K24TV/live", 0xFFE53935u},
-    {5, "KBC Channel 1", "https://www.youtube.com/@KBCChannel1/live", 0xFF0D47A1u},
-    {6, "TV47", "https://www.youtube.com/@TV47Kenya/live", 0xFFEF6C00u},
+    {1, "Citizen TV", "https://www.youtube.com/channel/UChBQgieUidXV1CmDxSdRm3g/live", 0xFFD32F2Fu},
+    {2, "NTV Kenya", "https://www.youtube.com/channel/UCqBJ47FjJcl61fmSbcadAVg/live", 0xFFC62828u},
+    {3, "KTN News", "https://www.youtube.com/channel/UCKVsdeoHExltrWMuK0hOWmg/live", 0xFF1565C0u},
+    {4, "K24 TV", "https://www.youtube.com/channel/UCt3SE-Mvs3WwP7UW-PiFdqQ/live", 0xFFE53935u},
+    {5, "KBC Channel 1", "https://www.youtube.com/channel/UCypNjM5hP1qcUqQZe57jNfg/live", 0xFF0D47A1u},
+    {6, "TV47", "https://www.youtube.com/channel/UC_zA9UIWE1fB-jfFk_DBSYw/live", 0xFFEF6C00u},
+    {7, "Inooro TV", "https://www.youtube.com/channel/UCZlNMLTVNxzwB0axilK-rDw/live", 0xFF2E7D32u},
+    {8, "Kameme TV", "https://www.youtube.com/channel/UCd9nkc2XA77NMxBvQz35I2Q/live", 0xFF6A1B9Au},
+    {9, "Ramogi TV", "https://www.youtube.com/channel/UCmKXJ4C59JjVVJ-axXfpJcg/live", 0xFF00838Fu},
+    {10, "Switch TV", "https://www.youtube.com/channel/UCUhrpGr_luwUzVaxiW5Jkhw/live", 0xFFAD1457u},
 };
 
 /* Card colours for lines that give none. */

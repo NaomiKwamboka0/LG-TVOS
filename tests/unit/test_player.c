@@ -74,7 +74,10 @@ static void test_classify_messages(void)
 {
     CHECK(player_classify("[ytdl_hook] youtube-dl failed: not found or not enough permissions") == PERR_NO_RESOLVER);
     CHECK(player_classify("WARNING: [youtube] No supported JavaScript runtime could be found.") == PERR_NO_JS_RUNTIME);
-    CHECK(player_classify("ERROR: [youtube:tab] @citizentvkenya: The channel is not currently live") == PERR_NOT_LIVE);
+    /* Captured from yt-dlp 2026.10.26 on 2026-10-28. */
+    CHECK(player_classify("ERROR: [youtube:tab] @KBCChannel1: The channel is not currently live") == PERR_NOT_LIVE);
+    CHECK(player_classify("ERROR: [youtube:tab] @ntvkenya/live: Unable to download API page: HTTP Error 404: "
+                          "Not Found (caused by <HTTPError 404: Not Found>)") == PERR_BAD_CHANNEL);
     CHECK(player_classify("ERROR: [youtube] abc: This live event will begin in 3 hours.") == PERR_NOT_LIVE);
     CHECK(player_classify("ERROR: [youtube] abc: Sign in to confirm you're not a bot.") == PERR_BLOCKED);
     CHECK(player_classify("ERROR: Unable to download webpage: HTTP Error 429: Too Many Requests") == PERR_BLOCKED);
@@ -88,13 +91,15 @@ static void test_classify_messages(void)
 
 static void test_format_never_upscales_data(void)
 {
-    char f[96];
+    char f[160];
     player_format(360, f, sizeof f);
-    CHECK(strcmp(f, "best[height<=?360][fps<=?30]/best[height<=?360]/worst") == 0);
+    CHECK(strcmp(f, "bv*[height<=?360][fps<=?30]+ba/b[height<=?360][fps<=?30]/"
+                    "bv*[height<=?360]+ba/b[height<=?360]/wv*+ba/w") == 0);
     player_format(480, f, sizeof f);
-    CHECK(strstr(f, "height<=?480") != NULL && strstr(f, "/worst") != NULL);
+    CHECK(strstr(f, "height<=?480") != NULL && strstr(f, "720") == NULL);
+    CHECK(strcmp(f + strlen(f) - 9, "/wv*+ba/w") == 0); /* never "best" as the last resort */
     player_format(720, f, sizeof f);
-    CHECK(strcmp(f, "best[height<=?720][fps<=?30]/best[height<=?720]/best") == 0);
+    CHECK(strcmp(f, "bv*[height<=?720]+ba/b[height<=?720]/wv*+ba/w") == 0);
 }
 
 void run_player_tests(void)

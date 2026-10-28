@@ -77,10 +77,15 @@ const char *player_error_name(player_error e)
 
 void player_format(int max_height, char *out, unsigned n)
 {
+    /* YouTube live sends video and audio as separate streams, so a plain
+     * "best" finds nothing. 720p is only offered at 60 fps, so the HD
+     * choice drops the 30 fps cap rather than quietly falling to 480p. */
     if (max_height >= 720)
-        snprintf(out, n, "best[height<=?720][fps<=?30]/best[height<=?720]/best");
+        snprintf(out, n, "bv*[height<=?720]+ba/b[height<=?720]/wv*+ba/w");
     else
-        snprintf(out, n, "best[height<=?%d][fps<=?30]/best[height<=?%d]/worst", max_height, max_height);
+        snprintf(out, n, "bv*[height<=?%d][fps<=?30]+ba/b[height<=?%d][fps<=?30]/"
+                         "bv*[height<=?%d]+ba/b[height<=?%d]/wv*+ba/w",
+                 max_height, max_height, max_height, max_height);
 }
 
 /* Case-insensitive substring search. */

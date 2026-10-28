@@ -73,8 +73,8 @@ player_error player_classify(const char *log_text);
 /* Short stable name, e.g. "not-live" (stub addresses, logs). */
 const char *player_error_name(player_error e);
 
-/* yt-dlp format choice for a height cap: never more than 30 frames a second,
- * and the smallest stream rather than the largest when nothing fits. */
+/* yt-dlp format choice for a height cap: at most 30 frames a second below
+ * 720p, and the smallest stream rather than the largest when nothing fits. */
 void player_format(int max_height, char *out, unsigned n);
 
 #endif

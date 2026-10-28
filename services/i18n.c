@@ -129,7 +129,7 @@ static const char *const TABLE[STR_COUNT][LANG_COUNT] = {
                            "Mabadiliko hapa yanalindwa na PIN ya mzazi."},
     [STR_QUALITY] = {"Live TV picture", "Picha ya TV mubashara"},
     [STR_QUALITY_360] = {"360p, about 0.5 GB an hour", "360p, takriban GB 0.5 kwa saa"},
-    [STR_QUALITY_480] = {"480p, about 0.7 GB an hour", "480p, takriban GB 0.7 kwa saa"},
+    [STR_QUALITY_480] = {"480p, about 0.6 GB an hour", "480p, takriban GB 0.6 kwa saa"},
     [STR_QUALITY_720] = {"720p, about 1.4 GB an hour", "720p, takriban GB 1.4 kwa saa"},
 };
 

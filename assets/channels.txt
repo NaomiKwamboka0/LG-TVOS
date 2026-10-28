@@ -6,13 +6,23 @@
 #   address  the channel's YouTube "live" address (must start with https://)
 #   colour   optional card colour, like #1E88E5
 #
+# Use the channel's ID address (youtube.com/channel/UC.../live), not the
+# @name one: names change, and look-alike names belong to other channels.
+# tools/verify-channels.sh checks addresses on a computer with yt-dlp.
+#
 # Lines starting with # are notes and are ignored. Save this file as plain
 # text (Notepad is fine). If a line has a mistake, Family TV skips it and
 # says which line on the home screen.
 
-1|Citizen TV|https://www.youtube.com/@citizentvkenya/live|#D32F2F
-2|NTV Kenya|https://www.youtube.com/@ntvkenya/live|#C62828
-3|KTN News|https://www.youtube.com/@KTNNewsKE/live|#1565C0
-4|K24 TV|https://www.youtube.com/@K24TV/live|#E53935
-5|KBC Channel 1|https://www.youtube.com/@KBCChannel1/live|#0D47A1
-6|TV47|https://www.youtube.com/@TV47Kenya/live|#EF6C00
+# Checked 2026-10-28. Live at the time: Citizen, NTV, KTN News, K24, TV47,
+# Inooro. KBC, Kameme, Ramogi and Switch stream on a schedule.
+1|Citizen TV|https://www.youtube.com/channel/UChBQgieUidXV1CmDxSdRm3g/live|#D32F2F
+2|NTV Kenya|https://www.youtube.com/channel/UCqBJ47FjJcl61fmSbcadAVg/live|#C62828
+3|KTN News|https://www.youtube.com/channel/UCKVsdeoHExltrWMuK0hOWmg/live|#1565C0
+4|K24 TV|https://www.youtube.com/channel/UCt3SE-Mvs3WwP7UW-PiFdqQ/live|#E53935
+5|KBC Channel 1|https://www.youtube.com/channel/UCypNjM5hP1qcUqQZe57jNfg/live|#0D47A1
+6|TV47|https://www.youtube.com/channel/UC_zA9UIWE1fB-jfFk_DBSYw/live|#EF6C00
+7|Inooro TV|https://www.youtube.com/channel/UCZlNMLTVNxzwB0axilK-rDw/live|#2E7D32
+8|Kameme TV|https://www.youtube.com/channel/UCd9nkc2XA77NMxBvQz35I2Q/live|#6A1B9A
+9|Ramogi TV|https://www.youtube.com/channel/UCmKXJ4C59JjVVJ-axXfpJcg/live|#00838F
+10|Switch TV|https://www.youtube.com/channel/UCUhrpGr_luwUzVaxiW5Jkhw/live|#AD1457
