@@ -117,17 +117,21 @@ static void time_up(session *ss, shell *s)
 
 /* ---- saves ------------------------------------------------------------ */
 
+/* A path that does not fit comes back empty, so opening it simply fails
+ * instead of touching some other, shortened path. */
 static const char *data_path(char *out, size_t n, const char *file)
 {
     size_t len = strlen(data_dir);
     int sep = len > 0 && (data_dir[len - 1] == '/' || data_dir[len - 1] == '\\');
-    snprintf(out, n, "%s%s%s", data_dir, sep ? "" : "/", file);
+    if (snprintf(out, n, "%s%s%s", data_dir, sep ? "" : "/", file) >= (int)n)
+        out[0] = '\0';
     return out;
 }
 
 static const char *base_path(char *out, size_t n, const char *file)
 {
-    snprintf(out, n, "%s%s", base_dir, file);
+    if (snprintf(out, n, "%s%s", base_dir, file) >= (int)n)
+        out[0] = '\0';
     return out;
 }
 

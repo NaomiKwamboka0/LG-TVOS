@@ -40,7 +40,8 @@ MPV_LIBS := $(shell pkg-config --libs mpv)
 MPV_SRC := media/player_mpv.c
 endif
 
-.PHONY: all term run-term window run window-smoke smoke screens bench fonts check-fonts test clean
+.PHONY: all term run-term window run window-smoke smoke screens bench fonts check-fonts icon test clean \
+        win-deps win win-check win-test win-zip
 
 all: check-fonts test smoke $(WINDOW_CHECK)
 
@@ -139,6 +140,70 @@ $(OUT)/host/test-core: $(CORE_SRC) $(TEST_SRC) tests/unit/check.h $(CORE_HDR)
 
 test: $(OUT)/host/test-core
 	$(OUT)/host/test-core
+
+# App icon for Windows, drawn with our own art (checked in, like the fonts).
+$(OUT)/host/iconbake: tools/iconbake.c ui/canvas.c ui/font_ui_data.c ui/art.c $(CORE_HDR)
+	mkdir -p $(OUT)/host
+	$(CC) -O2 $(WARN) $(INC) -o $@ tools/iconbake.c ui/canvas.c ui/font_ui_data.c ui/art.c
+
+icon: $(OUT)/host/iconbake
+	$(OUT)/host/iconbake | python3 -I tools/mkico.py packaging/windows/familytv.ico
+
+# ---- Windows, cross-built on this Mac (brew install mingw-w64 sevenzip) ------
+# make win-deps   fetch SDL2, libmpv, yt-dlp and deno (pinned, hash-checked)
+# make win-zip    out/win/FamilyTV-<commit>.zip to copy to the Windows laptop
+WIN_CC ?= x86_64-w64-mingw32-gcc
+WIN_RC ?= x86_64-w64-mingw32-windres
+WIN_OBJDUMP ?= x86_64-w64-mingw32-objdump
+WIN_SDL := deps/sdl2/x/SDL2-2.32.10/x86_64-w64-mingw32
+WIN_MPV := deps/mpv/x
+WIN_OUT := $(OUT)/win
+WIN_DIR := $(WIN_OUT)/FamilyTV
+WIN_SRC := $(CORE_SRC) sim/render_text.c sim/main.c sim/frontend_window.c media/player_mpv.c
+WIN_FLAGS := -O2 $(WARN) $(INC) -isystem $(WIN_SDL)/include/SDL2 -isystem $(WIN_MPV)/include \
+             -DFT_WINDOW -DFT_HAVE_MPV
+# Only Windows' own DLLs, plus the two we ship: no hidden gcc/pthread DLLs.
+WIN_DLLS_OK := ^(SDL2|libmpv-2|KERNEL32|USER32|ADVAPI32|bcrypt|SHELL32|api-ms-win-crt-[a-z0-9-]+)\.dll$$
+
+win-deps:
+	tools/fetch-win-deps.sh
+
+$(WIN_OUT)/familytv-res.o: packaging/windows/familytv.rc packaging/windows/familytv.manifest \
+                           packaging/windows/familytv.ico
+	mkdir -p $(WIN_OUT)
+	$(WIN_RC) -I packaging/windows -O coff -o $@ $<
+
+$(WIN_DIR)/FamilyTV.exe: $(WIN_SRC) $(CORE_HDR) $(WIN_OUT)/familytv-res.o
+	@test -f deps/sdl2/.ok -a -f deps/mpv/.ok || { echo "Windows libraries missing: make win-deps"; exit 1; }
+	mkdir -p $(WIN_DIR)
+	$(WIN_CC) $(WIN_FLAGS) -mwindows -static-libgcc -o $@ $(WIN_SRC) $(WIN_OUT)/familytv-res.o \
+	  -L$(WIN_SDL)/lib -L$(WIN_MPV) -lSDL2 -lmpv -lbcrypt
+
+win: $(WIN_DIR)/FamilyTV.exe
+	@test -f deps/yt-dlp/.ok -a -f deps/deno/.ok || { echo "yt-dlp or deno missing: make win-deps"; exit 1; }
+	cp $(WIN_SDL)/bin/SDL2.dll $(WIN_MPV)/libmpv-2.dll deps/yt-dlp/x/yt-dlp.exe deps/deno/x/deno.exe $(WIN_DIR)/
+	cp assets/channels.txt packaging/windows/README-Windows.txt $(WIN_DIR)/
+	mkdir -p $(WIN_DIR)/LICENSES
+	cp packaging/windows/NOTICE.txt $(WIN_DIR)/LICENSES/
+	cp deps/sdl2/x/SDL2-2.32.10/LICENSE.txt $(WIN_DIR)/LICENSES/SDL2-LICENSE.txt
+	cp third_party/monocypher/LICENCE.md $(WIN_DIR)/LICENSES/Monocypher-LICENCE.md
+	cp assets/fonts/inter/LICENSE.txt $(WIN_DIR)/LICENSES/Inter-LICENSE.txt
+
+win-check: win
+	$(WIN_OBJDUMP) -p $(WIN_DIR)/FamilyTV.exe | awk '/DLL Name:/ {print $$3}' | sort -u | tee $(WIN_OUT)/dlls.txt
+	! grep -viE '$(WIN_DLLS_OK)' $(WIN_OUT)/dlls.txt
+	@echo "win-check: OK"
+
+# The unit tests as a Windows program (no sanitizers in mingw); run it on
+# Windows from the folder holding assets/ and out/, or under Wine.
+win-test:
+	mkdir -p $(WIN_OUT)
+	$(WIN_CC) -O2 $(WARN) $(INC) -Itests/unit -o $(WIN_OUT)/test-core.exe $(CORE_SRC) $(TEST_SRC) -lbcrypt
+
+win-zip: win-check
+	rm -f $(WIN_OUT)/FamilyTV-*.zip
+	cd $(WIN_OUT) && zip -qr -9 FamilyTV-$(BUILD_ID).zip FamilyTV
+	@ls -l $(WIN_OUT)/FamilyTV-$(BUILD_ID).zip
 
 clean:
 	rm -rf $(OUT)

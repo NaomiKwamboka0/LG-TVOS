@@ -808,12 +808,12 @@ static void banner(ft_canvas *c, const live *l, const player_status *ps, const c
     hint(c, tr(L, STR_HELP_LIVE));
 }
 
-static void volume_bar(ft_canvas *c, int volume, ft_lang L)
+static void volume_bar(ft_canvas *c, int volume)
 {
     ft_rect pill = {VIEW_W - VIEW_MARGIN - 340, 40, 340, 60};
     ft_rect track = {pill.x + 70, pill.y + 27, 190, 6};
     ft_rect fill = track;
-    char num[8];
+    char num[12];
     glass(c, pill, 30);
     art_glyph(c, ART_VOLUME, pill.x + 38, pill.y + 30, 15, COL_TEXT);
     canvas_round(c, track, 3, COL_ROW);
@@ -823,7 +823,6 @@ static void volume_bar(ft_canvas *c, int volume, ft_lang L)
     snprintf(num, sizeof num, "%d", volume);
     canvas_text_right(c, &font_label, pill.x + pill.w - 24, pill.y + (pill.h - font_label.line_height) / 2, num,
                       COL_TEXT);
-    (void)L;
 }
 
 static void channel_panel(ft_canvas *c, const live *l, const channel_list *chs, ft_lang L)
@@ -922,7 +921,7 @@ void view_live(ft_canvas *c, const live *l, const player_status *ps, const shell
     if (l->banner_ms > 0 || zapping)
         banner(c, l, ps, shown, L, clock_text);
     if (l->volume_ms > 0)
-        volume_bar(c, l->volume, L);
+        volume_bar(c, l->volume);
     if (l->panel_open)
         channel_panel(c, l, chs, L);
 }
