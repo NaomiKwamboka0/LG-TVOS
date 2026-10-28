@@ -279,7 +279,7 @@ static void test_garden_menu_flow(void)
 
 /* ---- Save service (F03) --------------------------------------------- */
 
-static void corrupt_byte(const char *path, long off)
+void test_corrupt_byte(const char *path, long off)
 {
     FILE *f = fopen(path, "r+b");
     int c;
@@ -313,7 +313,7 @@ static void test_save_roundtrip_and_recovery(void)
     CHECK(ft_save_read(p, "TEST", 1, data, sizeof data, &len) == FT_SAVE_OK);
     CHECK(len == 7 && strcmp(data, "second") == 0);
 
-    corrupt_byte(p, 22); /* payload byte */
+    test_corrupt_byte(p, 22); /* payload byte */
     CHECK(ft_save_read(p, "TEST", 1, data, sizeof data, &len) == FT_SAVE_RESTORED_PREV);
     CHECK(len == 6 && strcmp(data, "first") == 0);
     snprintf(bad, sizeof bad, "%s.bad", p);
@@ -339,12 +339,12 @@ static void test_save_many_writes_and_repeat_quarantine(void)
         CHECK(ft_save_write(p, "TEST", 1, want, (uint32_t)strlen(want) + 1) == FT_SAVE_OK);
     }
     CHECK(ft_save_read(p, "TEST", 1, data, sizeof data, &len) == FT_SAVE_OK && strcmp(data, "save 5") == 0);
-    corrupt_byte(p, 22);
+    test_corrupt_byte(p, 22);
     CHECK(ft_save_read(p, "TEST", 1, data, sizeof data, &len) == FT_SAVE_RESTORED_PREV);
     CHECK(strcmp(data, "save 4") == 0);
     for (i = 0; i < 2; i++) { /* the second quarantine finds .bad already there */
         CHECK(ft_save_write(p, "TEST", 1, "again", 6) == FT_SAVE_OK);
-        corrupt_byte(p, 22);
+        test_corrupt_byte(p, 22);
         CHECK(ft_save_read(p, "TEST", 1, data, sizeof data, &len) == FT_SAVE_RESTORED_PREV);
     }
     CHECK(ft_save_write(p, "TEST", 1, "last", 5) == FT_SAVE_OK);

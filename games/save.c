@@ -41,9 +41,10 @@ static uint32_t fnv(const uint8_t *p, uint32_t n, uint32_t h)
     return h;
 }
 
-static int read_one(const char *path, const char magic[4], uint16_t schema,
-                    void *buf, uint32_t cap, uint32_t *len, uint32_t *seq)
+static int read_one(const char *path, const char magic[4], uint16_t min_schema, uint16_t max_schema,
+                    void *buf, uint32_t cap, uint32_t *len, uint32_t *seq, uint16_t *schema)
 {
+    uint16_t version;
     uint8_t h[HDR];
     uint32_t n;
     FILE *f = fopen(path, "rb");
@@ -54,7 +55,8 @@ static int read_one(const char *path, const char magic[4], uint16_t schema,
         return FT_SAVE_CORRUPT;
     }
     n = get32(h + 12);
-    if (memcmp(h, magic, 4) != 0 || get16(h + 4) != schema || n > cap || n > FT_SAVE_MAX) {
+    version = get16(h + 4);
+    if (memcmp(h, magic, 4) != 0 || version < min_schema || version > max_schema || n > cap || n > FT_SAVE_MAX) {
         fclose(f);
         return FT_SAVE_CORRUPT;
     }
@@ -69,6 +71,8 @@ static int read_one(const char *path, const char magic[4], uint16_t schema,
         *len = n;
     if (seq)
         *seq = get32(h + 8);
+    if (schema)
+        *schema = version;
     return FT_SAVE_OK;
 }
 
@@ -132,11 +136,12 @@ int ft_save_write(const char *path, const char magic[4], uint16_t schema,
     if (with_suffix(tmp, path, ".tmp") || with_suffix(prev, path, ".prev"))
         return FT_SAVE_IO;
 
-    /* Only a valid current file may become the last-known-good copy. */
+    /* Only a valid current file (this schema or an older one) may become
+     * the last-known-good copy. */
     scratch = malloc(FT_SAVE_MAX);
     if (!scratch)
         return FT_SAVE_IO;
-    current_valid = read_one(path, magic, schema, scratch, FT_SAVE_MAX, NULL, &seq) == FT_SAVE_OK;
+    current_valid = read_one(path, magic, 1, schema, scratch, FT_SAVE_MAX, NULL, &seq, NULL) == FT_SAVE_OK;
     free(scratch);
 
     memcpy(h, magic, 4);
@@ -166,17 +171,23 @@ int ft_save_write(const char *path, const char magic[4], uint16_t schema,
     return FT_SAVE_OK;
 }
 
-int ft_save_read(const char *path, const char magic[4], uint16_t schema,
-                 void *buf, uint32_t cap, uint32_t *out_len)
+int ft_save_read_range(const char *path, const char magic[4], uint16_t min_schema, uint16_t max_schema,
+                       void *buf, uint32_t cap, uint32_t *out_len, uint16_t *out_schema)
 {
     char prev[PATH_MAX_LEN], bad[PATH_MAX_LEN];
-    int r = read_one(path, magic, schema, buf, cap, out_len, NULL);
+    int r = read_one(path, magic, min_schema, max_schema, buf, cap, out_len, NULL, out_schema);
     if (r == FT_SAVE_OK)
         return r;
     if (r == FT_SAVE_CORRUPT && with_suffix(bad, path, ".bad") == 0)
         plat_replace(path, bad);
     if (with_suffix(prev, path, ".prev") == 0 &&
-        read_one(prev, magic, schema, buf, cap, out_len, NULL) == FT_SAVE_OK)
+        read_one(prev, magic, min_schema, max_schema, buf, cap, out_len, NULL, out_schema) == FT_SAVE_OK)
         return FT_SAVE_RESTORED_PREV;
     return r;
+}
+
+int ft_save_read(const char *path, const char magic[4], uint16_t schema,
+                 void *buf, uint32_t cap, uint32_t *out_len)
+{
+    return ft_save_read_range(path, magic, schema, schema, buf, cap, out_len, NULL);
 }

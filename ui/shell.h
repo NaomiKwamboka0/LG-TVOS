@@ -39,6 +39,7 @@ typedef enum {
     ACT_RESET_TODAY,
     ACT_TOGGLE_GAME,
     ACT_CHANGE_PIN,
+    ACT_CYCLE_QUALITY,
     ACT_SETTINGS_CLOSED
 } shell_act;
 
@@ -68,6 +69,7 @@ typedef struct {
     unsigned child_games;      /* bit per game_id */
     uint32_t child_limit_s;    /* 0 = no limit */
     uint32_t play_remaining_s; /* for the child's Games screen */
+    int quality;               /* video_quality (settings.h) */
     shell_fav favs[SHELL_MAX_FAVS];
     int nfav;
 } shell_config;

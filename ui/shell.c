@@ -10,6 +10,8 @@ static const ft_str TILE_HINT[TILE_COUNT] = {
     STR_LIVE_TV_HINT, STR_APP_HINT, STR_FOOTBALL_HINT, STR_GAMES_HINT, STR_APP_HINT, STR_MORE_HINT
 };
 static const ft_str GAME_NAME[GAME_COUNT] = {STR_GAME_RACER, STR_GAME_PENALTY, STR_GAME_GARDEN};
+static const ft_str QUALITY_LABEL[] = {STR_QUALITY_360, STR_QUALITY_480, STR_QUALITY_720};
+#define QUALITY_LABELS ((int)(sizeof QUALITY_LABEL / sizeof QUALITY_LABEL[0]))
 
 typedef struct {
     char label[SHELL_LABEL_MAX];
@@ -121,7 +123,10 @@ static int settings_items(const shell *s, item *out, int max)
                  tr(L, (s->cfg.child_games & (1u << g)) ? STR_ALLOWED : STR_BLOCKED));
         n = add(out, n, max, buf, ACT_TOGGLE_GAME, g);
     }
-    return add(out, n, max, tr(L, STR_CHANGE_PIN), ACT_CHANGE_PIN, 0);
+    n = add(out, n, max, tr(L, STR_CHANGE_PIN), ACT_CHANGE_PIN, 0);
+    snprintf(buf, sizeof buf, "%s: %s", tr(L, STR_QUALITY),
+             tr(L, QUALITY_LABEL[s->cfg.quality >= 0 && s->cfg.quality < QUALITY_LABELS ? s->cfg.quality : 1]));
+    return add(out, n, max, buf, ACT_CYCLE_QUALITY, 0);
 }
 
 static int items(const shell *s, item *out, int max)

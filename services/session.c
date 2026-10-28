@@ -37,6 +37,7 @@ static void sync(session *ss, shell *s)
     s->cfg.child_games = f->child_games;
     s->cfg.child_limit_s = f->play.daily_limit_s;
     s->cfg.play_remaining_s = play_remaining(&f->play);
+    s->cfg.quality = f->quality;
     if (s->cfg.profile != (profile_role)f->profile)
         shell_set_profile(s, (profile_role)f->profile);
 }
@@ -337,6 +338,13 @@ int session_dispatch(session *ss, shell *s, shell_action a)
     case ACT_CHANGE_PIN:
         if (settings_open(ss, s))
             start_new_pin(ss, s, AFTER_SETTINGS);
+        break;
+    case ACT_CYCLE_QUALITY:
+        if (settings_open(ss, s)) {
+            f->quality = (uint8_t)((f->quality + 1) % QUALITY_COUNT);
+            persist(ss, s);
+            sync(ss, s);
+        }
         break;
     case ACT_SETTINGS_CLOSED:
         ss->unlocked = 0;
