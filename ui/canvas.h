@@ -5,9 +5,8 @@
  * baseline). Draws into a caller-owned 32-bit 0xAARRGGBB buffer with alpha
  * blending, anti-aliased rounded shapes, gradients, soft shadows and
  * anti-aliased proportional text. Every operation is clipped, so nothing
- * writes outside the buffer; nothing allocates. Integer maths only, so the
- * TV's floating-point ABI does not matter. The TV display backend converts
- * the result to the panel's real pixel format once gate I05 identifies it. */
+ * writes outside the buffer; nothing allocates. Integer maths only. The
+ * window frontend uploads the result to the screen as an SDL texture. */
 
 #include <stdint.h>
 

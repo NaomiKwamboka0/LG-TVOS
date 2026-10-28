@@ -11,7 +11,7 @@
 #define PIN_DIGITS 4
 #define PIN_SALT_SIZE 16
 #define PIN_HASH_SIZE 32
-/* Initial cost on the computer; must be re-tuned on the TV (plan p.16). */
+/* Argon2id cost: well under a second on a budget laptop (plan p.16). */
 #define PIN_DEFAULT_BLOCKS 4096u /* KiB of work memory */
 #define PIN_DEFAULT_PASSES 3u
 #define PIN_MAX_BLOCKS 16384u

@@ -12,16 +12,19 @@ CORE_SRC := games/common.c games/save.c games/racer.c games/penalty.c games/gard
             media/player.c media/player_stub.c
 CORE_HDR := $(wildcard games/*.h ui/*.h platform/*.h services/*.h media/*.h sim/*.h third_party/monocypher/*.h)
 TEST_SRC := tests/unit/test_core.c tests/unit/test_services.c tests/unit/test_view.c tests/unit/test_channels.c tests/unit/test_player.c
-SIM_SRC := $(CORE_SRC) sim/render_text.c sim/frontend_text.c sim/main.c
+TERM_SRC := sim/frontend_text.c
 # Sanitizers for the unit tests where the toolchain has them (not mingw).
 SAN ?= -fsanitize=address,undefined
 SYS_LIBS :=
 
 ifeq ($(OS),Windows_NT)
-# Native MSYS2 UCRT64 build. The terminal frontend needs termios, so Windows gets the window only.
+# Native MSYS2 UCRT64 build: make test window. The terminal frontend needs
+# termios, so Windows gets the window only.
 SAN :=
 SYS_LIBS := -lbcrypt
+TERM_SRC :=
 endif
+SIM_SRC := $(CORE_SRC) sim/render_text.c $(TERM_SRC) sim/main.c
 
 # Desktop window (SDL2: brew install sdl2).
 SDL_CONFIG := $(shell command -v sdl2-config 2>/dev/null)
@@ -60,7 +63,7 @@ $(OUT)/host/familytv: $(SIM_SRC) sim/frontend_window.c $(MPV_SRC) $(CORE_HDR)
 	@if [ -z "$(SDL_CONFIG)" ]; then echo "SDL2 not found: brew install sdl2"; exit 1; fi
 	mkdir -p $(OUT)/host
 	$(CC) $(CFLAGS) $(WARN) $(INC) $(SDL_CFLAGS) $(MPV_CFLAGS) -DFT_WINDOW -o $@ \
-	  $(SIM_SRC) sim/frontend_window.c $(MPV_SRC) $(SDL_LIBS) $(MPV_LIBS)
+	  $(SIM_SRC) sim/frontend_window.c $(MPV_SRC) $(SDL_LIBS) $(MPV_LIBS) $(SYS_LIBS)
 
 # Family TV in a window: arrows, Enter = OK, Backspace/Esc = Back, q = quit.
 run: window

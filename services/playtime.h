@@ -6,11 +6,11 @@
  * find the Nairobi day, and only while it looks trustworthy.
  *
  * Declared policy:
- *  - the allowance resets at Nairobi midnight when the TV clock is trusted;
+ *  - the allowance resets at Nairobi midnight when the computer clock is trusted;
  *  - a clock earlier than 2026-01-01, or moved backwards, never resets it;
  *  - parents can give extra minutes or reset today after entering the PIN.
- * Known limit: moving the TV clock forward (TV settings access) can cause an
- * early reset. This is recorded, not hidden. */
+ * Known limit: moving the computer clock forward (Windows settings access)
+ * can cause an early reset. This is recorded, not hidden. */
 
 #include <stddef.h>
 #include <stdint.h>

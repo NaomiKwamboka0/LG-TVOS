@@ -3,8 +3,8 @@
 
 #include <stdint.h>
 
-/* Logical remote keys (plan p.22 input mapper). The platform adapter maps
- * real remote events onto these once the TV's key codes are known. */
+/* Logical remote keys (plan p.22 input mapper). The window maps keyboard
+ * keys onto these (arrows, Enter = OK, Backspace/Esc = Back). */
 typedef enum { FT_NONE = 0, FT_LEFT, FT_RIGHT, FT_UP, FT_DOWN, FT_OK, FT_BACK } ft_key;
 
 #define FT_TICK_HZ 30
