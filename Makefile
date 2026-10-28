@@ -8,7 +8,7 @@ INC := -Igames -Iui -Iplatform -Iservices -Imedia -Isim -Ithird_party/monocypher
 CORE_SRC := games/common.c games/save.c games/racer.c games/penalty.c games/garden.c \
             ui/shell.c services/i18n.c services/pin.c services/playtime.c services/settings.c \
             services/session.c services/channels.c services/prefs.c third_party/monocypher/monocypher.c \
-            ui/canvas.c ui/font_ui_data.c ui/art.c ui/view.c platform/desktop.c \
+            ui/canvas.c ui/font_ui_data.c ui/art.c ui/view.c ui/live.c platform/desktop.c \
             media/player.c media/player_stub.c
 CORE_HDR := $(wildcard games/*.h ui/*.h platform/*.h services/*.h media/*.h sim/*.h third_party/monocypher/*.h)
 TEST_SRC := tests/unit/test_core.c tests/unit/test_services.c tests/unit/test_view.c tests/unit/test_channels.c tests/unit/test_player.c
@@ -42,7 +42,7 @@ $(OUT)/host/familytv-term: $(SIM_SRC) $(CORE_HDR)
 	$(CC) $(CFLAGS) $(WARN) $(INC) -o $@ $(SIM_SRC)
 
 run-term: term
-	$(OUT)/host/familytv-term --demo-received
+	$(OUT)/host/familytv-term
 
 window: $(OUT)/host/familytv
 
@@ -53,27 +53,32 @@ $(OUT)/host/familytv: $(SIM_SRC) sim/frontend_window.c $(CORE_HDR)
 
 # Family TV in a window: arrows, Enter = OK, Backspace/Esc = Back, q = quit.
 run: window
-	$(OUT)/host/familytv --demo-received
+	$(OUT)/host/familytv
 
 # Headless check of the window build: scripted keys, SDL dummy video driver, last frame dumped.
+# 1: Apps -> Penalty Cup. 2: watch the banner channel with the stub player.
 window-smoke: window
-	rm -rf $(OUT)/wsmoke $(OUT)/wsmoke.ppm
-	SDL_VIDEODRIVER=dummy $(OUT)/host/familytv --demo-received --data $(OUT)/wsmoke \
-	  --dump-frame $(OUT)/wsmoke.ppm --keys R,R,OK,OK,OK,W90
-	python3 -I tools/ppm2png.py $(OUT) $(OUT)/wsmoke.ppm > /dev/null
-	@echo "window-smoke: OK ($(OUT)/wsmoke.png)"
+	rm -rf $(OUT)/wsmoke $(OUT)/wsmoke*.ppm
+	SDL_VIDEODRIVER=dummy $(OUT)/host/familytv --data $(OUT)/wsmoke \
+	  --dump-frame $(OUT)/wsmoke.ppm --keys BACK,R,R,D,R,OK,OK,OK,W90
+	SDL_VIDEODRIVER=dummy $(OUT)/host/familytv --data $(OUT)/wsmoke \
+	  --dump-frame $(OUT)/wsmoke-live.ppm --keys OK,W60,U,W
+	python3 -I tools/ppm2png.py $(OUT) $(OUT)/wsmoke.ppm $(OUT)/wsmoke-live.ppm > /dev/null
+	@echo "window-smoke: OK ($(OUT)/wsmoke.png, $(OUT)/wsmoke-live.png)"
 
 # Scripted walks with throwaway data folders (never the interactive out/simdata).
-# 1: Football -> SportyTV fallback, then Games -> Racer start/pause/exit.
-# 2: More -> Parent settings -> create PIN 0000 twice -> switch language to Kiswahili.
+# 1: watch the banner channel (stub player), change channel, back home,
+#    then Apps -> Games -> Family Racer start/pause/exit.
+# 2: gear -> Settings -> Parent settings -> create PIN 0000 twice -> Kiswahili.
 smoke: term
 	rm -rf $(OUT)/smoke1 $(OUT)/smoke2
-	$(OUT)/host/familytv-term --demo-received --data $(OUT)/smoke1 \
-	  --keys R,OK,D,D,OK,BACK,R,OK,OK,OK,W60,BACK,BACK > $(OUT)/smoke1.txt
-	grep -q "channel list" $(OUT)/smoke1.txt
+	$(OUT)/host/familytv-term --data $(OUT)/smoke1 \
+	  --keys OK,W60,U,W30,BACK,BACK,R,R,D,OK,OK,W60,BACK,BACK > $(OUT)/smoke1.txt
+	grep -q "Citizen TV.*Playing" $(OUT)/smoke1.txt
+	grep -q "NTV Kenya.*Playing" $(OUT)/smoke1.txt
 	grep -q "Family Racer" $(OUT)/smoke1.txt
 	$(OUT)/host/familytv-term --data $(OUT)/smoke2 \
-	  --keys D,OK,D,D,OK,OK,OK,OK,OK,OK,OK,OK,OK,OK > $(OUT)/smoke2.txt
+	  --keys BACK,R,R,R,OK,D,OK,OK,OK,OK,OK,OK,OK,OK,OK,OK > $(OUT)/smoke2.txt
 	grep -q "Choose a new 4-digit parent PIN" $(OUT)/smoke2.txt
 	grep -q "Parent PIN saved" $(OUT)/smoke2.txt
 	grep -q "Lugha: Kiswahili" $(OUT)/smoke2.txt
@@ -100,7 +105,7 @@ check-fonts: $(OUT)/host/fontbake
 	cmp -s $(OUT)/font_ui_data.c ui/font_ui_data.c || { echo "ui/font_ui_data.c is stale: run make fonts"; exit 1; }
 	@echo "fonts: OK"
 
-# Render every screen to docs/screens/*.png for review.
+# Render every screen to docs/screens/*.png for review (live TV uses the stub test card).
 screens: $(OUT)/host/familytv-shots
 	rm -rf $(OUT)/screens
 	$(OUT)/host/familytv-shots $(OUT)/screens > /dev/null

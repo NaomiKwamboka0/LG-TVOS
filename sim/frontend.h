@@ -1,15 +1,17 @@
 #ifndef FT_FRONTEND_H
 #define FT_FRONTEND_H
 
-/* Simulator frontends: the text terminal, or a desktop window showing the
- * real pixel views. Both drive the same shell, session and games. Host
- * only; the TV gets its own display/input backend after gate I05. */
+/* Frontends: the desktop window showing the pixel views (the app), or a
+ * text terminal (a development tool). Both drive the same shell, session,
+ * games and live TV. */
 
 #include <stddef.h>
 #include <stdint.h>
 
 #include "garden.h"
+#include "live.h"
 #include "penalty.h"
+#include "player.h"
 #include "racer.h"
 #include "shell.h"
 
@@ -24,6 +26,10 @@ typedef struct {
     void (*racer)(const racer *r, const uint32_t best[RACER_LEVELS], ft_lang lang, const char *status);
     void (*penalty)(const penalty *p, ft_lang lang, const char *status);
     void (*garden)(const garden *g, ft_lang lang, const char *status);
+    /* Draws the newest picture from p with the live TV overlays. */
+    void (*live)(const live *l, player *p, const shell *s);
+    /* Thread-safe: makes a waiting poll() return FT_NONE now. May be NULL. */
+    void (*wake)(void *ctx);
 } sim_frontend;
 
 extern const sim_frontend frontend_text;

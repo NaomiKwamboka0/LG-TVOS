@@ -1,4 +1,4 @@
-/* Text-terminal frontend for the host simulator. */
+/* Text-terminal frontend: a development tool (macOS and Linux terminals). */
 #define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
 #include <stdlib.h>
@@ -104,6 +104,11 @@ static void text_garden(const garden *g, ft_lang lang, const char *status)
     render_garden(g, status);
 }
 
+static void text_live(const live *l, player *p, const shell *s)
+{
+    render_live(l, player_get(p), s);
+}
+
 const sim_frontend frontend_text = {
-    "text", text_open, raw_off, text_poll, render_shell, text_racer, text_penalty, text_garden
+    "text", text_open, raw_off, text_poll, render_shell, text_racer, text_penalty, text_garden, text_live, NULL
 };

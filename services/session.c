@@ -21,12 +21,12 @@ static ft_lang lang(const session *ss)
 
 static void say(session *ss, shell *s, ft_str id)
 {
-    snprintf(s->status, sizeof s->status, "[%s] %s", plat_name(), tr(lang(ss), id));
+    snprintf(s->status, sizeof s->status, "%s", tr(lang(ss), id));
 }
 
 static void say_with(session *ss, shell *s, ft_str id, const char *detail)
 {
-    snprintf(s->status, sizeof s->status, "[%s] %s %s", plat_name(), tr(lang(ss), id), detail);
+    snprintf(s->status, sizeof s->status, "%s %s", tr(lang(ss), id), detail);
 }
 
 static void sync(session *ss, shell *s)
@@ -209,30 +209,13 @@ static void cycle_limit(play_policy *p)
 int session_dispatch(session *ss, shell *s, shell_action a)
 {
     family_settings *f = &ss->settings;
-    char buf[96];
 
     switch (a.act) {
-    case ACT_OPEN_BROADCAST:
-        say(ss, s, plat_open_broadcast() == PLAT_OK ? STR_LIVE_OPENED : STR_LIVE_FAILED);
-        break;
-    case ACT_TUNE_FAVOURITE: {
-        const char *name = s->cfg.favs[a.arg].name;
-        if (plat_tune_service(name) == PLAT_OK)
-            say_with(ss, s, STR_TUNED, name);
-        else if (plat_open_channel_list() == PLAT_OK)
-            say_with(ss, s, STR_TUNE_FALLBACK, name);
-        else
-            say(ss, s, STR_LIST_FAILED);
-        break;
-    }
-    case ACT_OPEN_CHANNEL_LIST:
-        say(ss, s, plat_open_channel_list() == PLAT_OK ? STR_LIST_OPENED : STR_LIST_FAILED);
-        break;
-    case ACT_OPEN_YOUTUBE:
-    case ACT_OPEN_NETFLIX:
-        if (plat_open_app(a.act == ACT_OPEN_YOUTUBE ? "youtube" : "netflix") != PLAT_OK)
-            say(ss, s, STR_APP_UNAVAILABLE);
-        break;
+    case ACT_PLAY_CHANNEL:
+        if (a.arg < 0 || a.arg >= s->cfg.channels.n)
+            break;
+        ss->watch_channel = a.arg;
+        return SESSION_WATCH;
     case ACT_LAUNCH_GAME:
         if (a.arg < 0 || a.arg >= GAME_COUNT)
             break;
@@ -248,11 +231,6 @@ int session_dispatch(session *ss, shell *s, shell_action a)
             }
         }
         return a.arg;
-    case ACT_WEB_SEARCH:
-        if (s->cfg.profile == PROFILE_PARENT && plat_web_search() == PLAT_OK)
-            break;
-        say(ss, s, STR_SEARCH_UNAVAILABLE);
-        break;
     case ACT_SWITCH_PROFILE:
         if (s->cfg.profile == PROFILE_CHILD) {
             ask_pin(ss, s, PIN_FOR_PARENT);
@@ -267,11 +245,8 @@ int session_dispatch(session *ss, shell *s, shell_action a)
             }
         }
         break;
-    case ACT_SHOW_SUPPORT:
-        snprintf(buf, sizeof buf, "YouTube: %s | Netflix: %s | Direct tuning: unverified",
-                 s->cfg.youtube_supported ? "tested" : "untested",
-                 s->cfg.netflix_supported ? "tested" : "untested");
-        snprintf(s->status, sizeof s->status, "[%s] %s", plat_name(), buf);
+    case ACT_ABOUT:
+        say(ss, s, STR_ABOUT_TEXT);
         break;
     case ACT_OPEN_PARENT_SETTINGS:
         if (s->cfg.profile != PROFILE_PARENT)

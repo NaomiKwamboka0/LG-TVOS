@@ -7,12 +7,19 @@
 
 /* ---- layout ------------------------------------------------------------ */
 
-#define APP_TOP 440
-#define APP_GAP 36
-#define APP_MAX_W 232
-#define SHELF_TOP 214
-#define SHELF_W 200
-#define SHELF_H 112
+#define TOP_Y 28
+#define TOP_H 44
+#define CONTENT_TOP 96
+#define CONTENT_BOTTOM 668
+#define HERO_H 260
+#define CARD_W 236
+#define CARD_H 133
+#define CARD_GAP 24
+#define CARD_STEP (CARD_W + CARD_GAP)
+#define CARDS_VISIBLE 4 /* fully visible per row; the next one peeks in */
+#define ROW_TITLE_H 40
+#define GUIDE_H 60
+#define GUIDE_STEP 70
 #define LIST_X 560
 #define LIST_TOP 116
 #define LIST_W 648
@@ -20,6 +27,10 @@
 #define LIST_STEP 72
 #define LIST_VISIBLE 7
 #define HINT_Y 684
+#define PANEL_W 440
+#define PANEL_TOP 104
+#define PANEL_STEP 58
+#define PANEL_VISIBLE 8
 
 static ft_rect lift(ft_rect r, int dx, int dy)
 {
@@ -80,8 +91,8 @@ static void backdrop(ft_canvas *c, ft_color accent, int glow_x, int glow_y, int 
         }
         for (ch = 0; ch < 3; ch++) {
             long b = (long)((base >> (8 * ch)) & 0xFFu), l = (long)((lit >> (8 * ch)) & 0xFFu);
-            acc[ch] = (b << 16) + 32768;
-            step[ch] = ((l - b) << 16) / 255;
+            acc[ch] = b * 65536 + 32768;
+            step[ch] = (l - b) * 65536 / 255; /* may be negative: no shifts */
         }
         for (i = 0; i < 256; i++) {
             lut[i] = 0xFF000000u | (uint32_t)((acc[2] >> 16) << 16) | (uint32_t)((acc[1] >> 16) << 8) |
@@ -154,23 +165,78 @@ static void hint(ft_canvas *c, const char *text)
     canvas_text_fit(c, &font_caption, VIEW_MARGIN, HINT_Y, VIEW_W - 2 * VIEW_MARGIN, text, COL_TEXT_3);
 }
 
-static void top_bar(ft_canvas *c, const shell *s, const char *clock_text)
-{
-    ft_lang L = s->cfg.lang;
-    int parent = s->cfg.profile == PROFILE_PARENT;
-    const char *name = tr(L, parent ? STR_PARENT : STR_CHILD);
-    const char *clock = clock_text ? clock_text : "--:--";
-    int clock_w = text_width(&font_body, clock);
-    int chip_w = 44 + text_width(&font_caption, name) + 16;
-    ft_rect chip = {VIEW_W - VIEW_MARGIN - clock_w - 20 - chip_w, 26, chip_w, 36};
-    char initial[2] = {name[0], '\0'};
-    ft_rect avatar_text = {chip.x + 5, chip.y + 5, 26, 26};
+/* ---- top bar ------------------------------------------------------------ */
 
-    canvas_text_right(c, &font_body, VIEW_W - VIEW_MARGIN, 32, clock, COL_TEXT);
-    canvas_round(c, chip, 18, COL_ROW);
-    canvas_circle(c, chip.x + 18, chip.y + 18, 13, art_accent(parent ? ART_LIVE_TV : ART_PROFILE));
-    canvas_text_center(c, &font_caption, avatar_text, initial, COL_TEXT);
-    canvas_text(c, &font_caption, chip.x + 40, chip.y + 7, name, COL_TEXT_2);
+static const char *profile_name(const shell *s)
+{
+    return tr(s->cfg.lang, s->cfg.profile == PROFILE_PARENT ? STR_PARENT : STR_CHILD);
+}
+
+static int clock_left(const char *clock_text)
+{
+    return VIEW_W - VIEW_MARGIN - text_width(&font_body, clock_text ? clock_text : "--:--");
+}
+
+ft_rect view_top_rect(const shell *s, int item)
+{
+    ft_rect r = {VIEW_MARGIN, TOP_Y, 0, TOP_H};
+    int i, chip_w = 44 + text_width(&font_caption, profile_name(s)) + 18;
+    if (item < TAB_COUNT) {
+        for (i = 0; i <= item && i < TAB_COUNT; i++) {
+            r.x += r.w + (i ? 8 : 0);
+            r.w = text_width(&font_label, shell_tab_label(s->cfg.lang, i)) + 40;
+        }
+        return r;
+    }
+    /* Right side, left to right: gear, profile chip, then the clock. */
+    r.w = item == TOP_PROFILE ? chip_w : TOP_H;
+    r.x = VIEW_W - VIEW_MARGIN - 112 - chip_w; /* room for the clock */
+    if (item == TOP_PROFILE)
+        r.x += TOP_H + 12;
+    return r;
+}
+
+/* tabs: draw the tabs and gear (home only); lists show just clock and profile. */
+static void top_bar(ft_canvas *c, const shell *s, const char *clock_text, int tabs)
+{
+    const char *clock = clock_text ? clock_text : "--:--";
+    int on_bar = s->screen == SCR_HOME && s->row < 0;
+    int parent = s->cfg.profile == PROFILE_PARENT, i;
+    const char *name = profile_name(s);
+    ft_rect chip = view_top_rect(s, TOP_PROFILE);
+    char initial[2] = {name[0], '\0'};
+    ft_rect avatar = {chip.x + 6, chip.y + 7, 30, 30};
+
+    canvas_text(c, &font_body, clock_left(clock), TOP_Y + (TOP_H - font_body.line_height) / 2, clock, COL_TEXT);
+    if (!tabs) {
+        chip.x = clock_left(clock) - 20 - chip.w;
+    } else {
+        for (i = 0; i < TAB_COUNT; i++) {
+            ft_rect r = view_top_rect(s, i);
+            int focused = on_bar && s->top == i, selected = (int)s->tab == i;
+            if (focused)
+                canvas_round(c, r, TOP_H / 2, COL_FOCUS_BG);
+            else if (selected)
+                canvas_round(c, r, TOP_H / 2, COL_ROW);
+            canvas_text_center(c, &font_label, r, shell_tab_label(s->cfg.lang, i),
+                               focused ? COL_ON_FOCUS : selected ? COL_TEXT : COL_TEXT_2);
+        }
+        {
+            ft_rect g = view_top_rect(s, TOP_GEAR);
+            int focused = on_bar && s->top == TOP_GEAR;
+            canvas_circle(c, g.x + g.w / 2, g.y + g.h / 2, g.h / 2, focused ? COL_FOCUS_BG : COL_ROW);
+            art_glyph(c, ART_GEAR, g.x + g.w / 2, g.y + g.h / 2, 15, focused ? COL_ON_FOCUS : COL_TEXT);
+        }
+    }
+    avatar.x = chip.x + 6;
+    {
+        int focused = tabs && on_bar && s->top == TOP_PROFILE;
+        canvas_round(c, chip, chip.h / 2, focused ? COL_FOCUS_BG : COL_ROW);
+        canvas_circle(c, avatar.x + 15, avatar.y + 15, 15, art_accent(parent ? ART_LIVE_TV : ART_PROFILE));
+        canvas_text_center(c, &font_caption, avatar, initial, COL_TEXT);
+        canvas_text(c, &font_caption, chip.x + 44, chip.y + (chip.h - font_caption.line_height) / 2, name,
+                    focused ? COL_ON_FOCUS : COL_TEXT_2);
+    }
 }
 
 /* Centred modal card over a dimmed screen. */
@@ -223,190 +289,311 @@ static void shadowed_center(ft_canvas *c, const ft_font *f, ft_rect r, const cha
     canvas_text_center(c, f, r, text, color);
 }
 
-/* ---- home --------------------------------------------------------------- */
-
-static art_id tile_art(int tile)
-{
-    switch ((shell_tile)tile) {
-    case TILE_LIVE_TV: return ART_LIVE_TV;
-    case TILE_YOUTUBE: return ART_YOUTUBE;
-    case TILE_FOOTBALL: return ART_FOOTBALL;
-    case TILE_GAMES: return ART_GAMES;
-    case TILE_NETFLIX: return ART_NETFLIX;
-    case TILE_MORE:
-    case TILE_COUNT: break;
-    }
-    return ART_MORE;
-}
-
-static const char *tile_text(const shell *s, int tile)
-{
-    /* Apps we do not have artwork for show their name, never a logo. */
-    return (tile == TILE_YOUTUBE || tile == TILE_NETFLIX) ? shell_tile_label(s, tile) : NULL;
-}
-
-ft_rect view_home_tile_rect(const shell *s, int index)
-{
-    int n = s->ntiles > 0 ? s->ntiles : 1;
-    int w = (VIEW_W - 2 * VIEW_MARGIN - (n - 1) * APP_GAP) / n;
-    ft_rect r;
-    if (w > APP_MAX_W)
-        w = APP_MAX_W;
-    r.x = VIEW_MARGIN + index * (w + APP_GAP);
-    r.y = APP_TOP;
-    r.w = w;
-    r.h = w * 3 / 5;
-    return r;
-}
+/* ---- home: tabs over rows of cards ------------------------------------- */
 
 typedef struct {
-    art_id art;
-    const char *caption;
-    const char *text; /* drawn on the card instead of a glyph */
-} shelf_card;
+    int top[SHELL_MAX_ROWS], height[SHELL_MAX_ROWS];
+    int first_row; /* rows above this have scrolled away */
+    int offset;
+} home_geo;
 
-static int shelf_cards(const shell *s, int tile, shelf_card *out, int max)
+static int row_height(const shell_row *r)
 {
-    ft_lang L = s->cfg.lang;
-    int n = 0, i;
-    switch ((shell_tile)tile) {
-    case TILE_LIVE_TV:
-        out[n++] = (shelf_card){ART_LIVE_TV, tr(L, STR_WATCH_LIVE), NULL};
-        out[n++] = (shelf_card){ART_CHANNELS, tr(L, STR_ALL_CHANNELS), NULL};
-        break;
-    case TILE_FOOTBALL:
-        for (i = 0; i < s->cfg.nfav && n < max - 1; i++)
-            if (s->cfg.favs[i].received == 1)
-                out[n++] = (shelf_card){ART_FOOTBALL, s->cfg.favs[i].name, s->cfg.favs[i].name};
-        out[n++] = (shelf_card){ART_CHANNELS, tr(L, STR_ALL_CHANNELS), NULL};
-        break;
-    case TILE_GAMES: {
-        static const art_id arts[GAME_COUNT] = {ART_RACER, ART_PENALTY, ART_GARDEN};
-        for (i = 0; i < GAME_COUNT && n < max; i++)
-            if (s->cfg.profile == PROFILE_PARENT || (s->cfg.child_games & (1u << i)))
-                out[n++] = (shelf_card){arts[i], shell_game_name(L, i), NULL};
-        break;
+    switch (r->style) {
+    case ROW_HERO: return HERO_H + 32;
+    case ROW_CARDS: return ROW_TITLE_H + CARD_H + 56;
+    case ROW_GUIDE: return (r->title != STR_COUNT ? ROW_TITLE_H : 0) + GUIDE_STEP;
     }
-    case TILE_MORE:
-        if (s->cfg.profile == PROFILE_PARENT) {
-            out[n++] = (shelf_card){ART_SETTINGS, tr(L, STR_PARENT_SETTINGS), NULL};
-            out[n++] = (shelf_card){ART_PROFILE, tr(L, STR_TO_CHILD), NULL};
-            out[n++] = (shelf_card){ART_SEARCH, tr(L, STR_WEB_SEARCH), NULL};
-        } else {
-            out[n++] = (shelf_card){ART_PROFILE, tr(L, STR_TO_PARENT), NULL};
-        }
-        break;
-    case TILE_YOUTUBE:
-    case TILE_NETFLIX:
-    case TILE_COUNT:
-        break;
+    return 0;
+}
+
+/* Scrolls by whole rows, just far enough that the focused row fits. */
+static void home_geometry(const shell *s, const shell_row *rows, int n, home_geo *g)
+{
+    int y = CONTENT_TOP, i, bottom;
+    for (i = 0; i < n; i++) {
+        g->top[i] = y;
+        g->height[i] = row_height(&rows[i]);
+        y += g->height[i];
     }
+    g->first_row = 0;
+    g->offset = 0;
+    if (s->row <= 0 || s->row >= n)
+        return;
+    bottom = g->top[s->row] + g->height[s->row];
+    while (g->first_row < s->row && bottom - (g->top[g->first_row] - CONTENT_TOP) > CONTENT_BOTTOM)
+        g->first_row++;
+    g->offset = g->top[g->first_row] - CONTENT_TOP;
+}
+
+/* First card shown in a row: the focus moves right until the third card,
+ * then the row slides, but never past its end. */
+static int first_card(int col, int n)
+{
+    int first = col - (CARDS_VISIBLE - 2), last = n - CARDS_VISIBLE;
+    if (first > last)
+        first = last;
+    return first < 0 ? 0 : first;
+}
+
+static int home_layout(const shell *s, shell_row *rows, home_geo *g)
+{
+    int n = shell_home_rows(s, rows, SHELL_MAX_ROWS);
+    home_geometry(s, rows, n, g);
     return n;
 }
 
-static ft_str shelf_line(int tile)
+ft_rect view_home_card_rect(const shell *s, int row, int col)
 {
-    switch ((shell_tile)tile) {
-    case TILE_LIVE_TV: return STR_SHELF_LIVE;
-    case TILE_FOOTBALL: return STR_SHELF_FOOTBALL;
-    case TILE_GAMES: return STR_SHELF_GAMES;
-    case TILE_MORE: return STR_SHELF_MORE;
-    case TILE_YOUTUBE:
-    case TILE_NETFLIX:
-    case TILE_COUNT: break;
+    static shell_row rows[SHELL_MAX_ROWS];
+    home_geo g;
+    int n = home_layout(s, rows, &g);
+    ft_rect r = {0, 0, 0, 0};
+    int y;
+    if (row < 0 || row >= n)
+        return r;
+    y = g.top[row] - g.offset;
+    switch (rows[row].style) {
+    case ROW_HERO:
+        r.x = VIEW_MARGIN;
+        r.y = y;
+        r.w = VIEW_W - 2 * VIEW_MARGIN;
+        r.h = HERO_H;
+        break;
+    case ROW_CARDS:
+        r.x = VIEW_MARGIN + (col - first_card(s->col[row], rows[row].n)) * CARD_STEP;
+        r.y = y + ROW_TITLE_H;
+        r.w = CARD_W;
+        r.h = CARD_H;
+        break;
+    case ROW_GUIDE:
+        r.x = VIEW_MARGIN;
+        r.y = y + (rows[row].title != STR_COUNT ? ROW_TITLE_H : 0);
+        r.w = VIEW_W - 2 * VIEW_MARGIN;
+        r.h = GUIDE_H;
+        break;
     }
-    return STR_SHELF_APP;
+    return r;
 }
 
-static void shelf(ft_canvas *c, const shell *s, int tile)
+static void live_pill(ft_canvas *c, int x, int y, ft_lang L)
 {
-    shelf_card cards[5];
-    int n = shelf_cards(s, tile, cards, 5), i, received = 0;
-    for (i = 0; i < n; i++) {
-        ft_rect r = {VIEW_MARGIN + i * (SHELF_W + 24), SHELF_TOP, SHELF_W, SHELF_H};
-        ft_rect sh = {r.x + 4, r.y + 8, r.w - 8, r.h - 4};
-        canvas_shadow(c, sh, 16, 0x70000000u);
-        art_tile(c, r, 14, cards[i].art, 0, cards[i].text);
-        {
-            ft_rect cap = {r.x, r.y + r.h + 10, r.w, 2 * font_caption.line_height};
-            canvas_text_wrap(c, &font_caption, cap, cards[i].caption, COL_TEXT_2);
-        }
-        if (cards[i].art == ART_FOOTBALL)
-            received++;
+    const char *t = tr(L, STR_LIVE_BADGE);
+    ft_rect r = {x, y, text_width(&font_caption, t) + 30, 26};
+    canvas_round(c, r, 13, COL_LIVE);
+    canvas_circle(c, r.x + 11, r.y + 13, 4, COL_TEXT);
+    canvas_text(c, &font_caption, r.x + 19, r.y + (r.h - font_caption.line_height) / 2, t, COL_TEXT);
+}
+
+/* Channel number on the channel's colour. */
+static void number_badge(ft_canvas *c, ft_rect r, const channel *ch, const ft_font *f)
+{
+    char num[8];
+    snprintf(num, sizeof num, "%d", ch->number);
+    canvas_round_gradient(c, r, r.h / 4, CORNERS_ALL, color_mix(ch->accent, COL_TEXT, 40),
+                          color_mix(ch->accent, FT_RGB(0x000000), 70));
+    canvas_text_center(c, f, r, num, COL_TEXT);
+}
+
+static void ring(ft_canvas *c, ft_rect r, int radius)
+{
+    ft_rect outer = lift(r, 5, 5);
+    canvas_round_stroke(c, outer, radius + 5, 3, COL_RING);
+}
+
+/* No LIVE badge here: whether a channel is live is only known once it plays. */
+static void channel_card(ft_canvas *c, ft_rect r, const channel *ch, int focused)
+{
+    ft_rect sheen = {r.x, r.y, r.w, r.h / 2};
+    ft_rect badge = {r.x + 12, r.y + 12, 44, 34};
+    ft_color top = color_mix(ch->accent, COL_TEXT, 25), bottom = color_mix(ch->accent, FT_RGB(0x000000), 120);
+    if (focused) {
+        ft_rect sh = {r.x + 8, r.y + 18, r.w - 16, r.h - 8};
+        canvas_shadow(c, sh, 26, 0xB0000000u);
     }
-    if (tile == TILE_FOOTBALL && received == 0) {
-        ft_rect note = {VIEW_MARGIN + n * (SHELF_W + 24) + 8, SHELF_TOP + 20, 420, 3 * font_body.line_height};
-        canvas_text_wrap(c, &font_body, note, tr(s->cfg.lang, STR_SHELF_FAV_HINT), COL_TEXT_3);
+    canvas_round_gradient(c, r, 14, CORNERS_ALL, top, bottom);
+    canvas_round_gradient(c, sheen, 14, CORNERS_TOP, focused ? 0x40FFFFFFu : 0x14FFFFFFu, 0x00FFFFFFu);
+    canvas_round(c, badge, 8, 0x4D000000u);
+    {
+        char num[8];
+        snprintf(num, sizeof num, "%d", ch->number);
+        canvas_text_center(c, &font_label, badge, num, COL_TEXT);
     }
+    canvas_text_fit(c, text_width(&font_title, ch->name) <= r.w - 28 ? &font_title : &font_label, r.x + 14,
+                    r.y + r.h - 14 - font_title.line_height, r.w - 28, ch->name, COL_TEXT);
+    if (focused)
+        ring(c, r, 14);
+}
+
+static art_id card_art(shell_card k)
+{
+    static const art_id games[GAME_COUNT] = {ART_RACER, ART_PENALTY, ART_GARDEN};
+    switch (k.kind) {
+    case CARD_GAME: return k.arg >= 0 && k.arg < GAME_COUNT ? games[k.arg] : ART_GAMES;
+    case CARD_SETTINGS: return ART_SETTINGS;
+    case CARD_PROFILE: return ART_PROFILE;
+    case CARD_ABOUT: return ART_INFO;
+    case CARD_CHANNEL:
+    case CARD_NO_CHANNELS: break;
+    }
+    return ART_CHANNELS;
+}
+
+static void app_card(ft_canvas *c, ft_rect r, const shell *s, shell_card k, int focused)
+{
+    ft_rect label = {r.x, r.y + r.h + 12, r.w, font_label.line_height};
+    if (focused) {
+        ft_rect sh = {r.x + 8, r.y + 18, r.w - 16, r.h - 8};
+        canvas_shadow(c, sh, 26, 0xB0000000u);
+    }
+    art_tile(c, r, 14, card_art(k), focused, NULL);
+    if (focused)
+        ring(c, r, 14);
+    canvas_text_fit(c, focused ? &font_label : &font_body, label.x, label.y, label.w, shell_card_label(s, k),
+                    focused ? COL_TEXT : COL_TEXT_2);
+}
+
+static void hero(ft_canvas *c, ft_rect r, const shell *s, shell_card k, int focused)
+{
+    ft_lang L = s->cfg.lang;
+    const channel *ch = k.kind == CARD_CHANNEL ? &s->cfg.channels.ch[k.arg] : NULL;
+    ft_color accent = ch ? ch->accent : art_accent(ART_CHANNELS);
+    ft_rect sh = {r.x + 10, r.y + 22, r.w - 20, r.h - 10};
+    canvas_shadow(c, sh, 30, 0x99000000u);
+    canvas_round_gradient(c, r, 22, CORNERS_ALL, FT_RGB(0x1E2026), FT_RGB(0x131418));
+    canvas_glow(c, r.x + r.w - 300, r.y + r.h / 2, 300, r.h / 2, color_alpha(accent, 0xC8));
+    art_glyph(c, ch ? ART_LIVE_TV : ART_CHANNELS, r.x + r.w - 300, r.y + r.h / 2, 56, 0xE6FFFFFFu);
+    if (ch) {
+        ft_rect badge = {r.x + 44, r.y + 32, 56, 40};
+        ft_rect button = {r.x + 44, r.y + r.h - 74, 0, 48};
+        const char *watch = tr(L, STR_WATCH);
+        number_badge(c, badge, ch, &font_label);
+        canvas_text(c, &font_body, badge.x + badge.w + 16, badge.y + (badge.h - font_body.line_height) / 2,
+                    "YouTube", COL_TEXT_3);
+        canvas_text_fit(c, &font_display, r.x + 44, r.y + 80, 620, ch->name, COL_TEXT);
+        canvas_text_fit(c, &font_body, r.x + 44, r.y + 140, 620, tr(L, STR_HERO_LINE), COL_TEXT_2);
+        button.w = text_width(&font_label, watch) + 56;
+        canvas_round(c, button, 24, focused ? COL_FOCUS_BG : COL_ROW);
+        canvas_text_center(c, &font_label, button, watch, focused ? COL_ON_FOCUS : COL_TEXT);
+    } else {
+        ft_rect hint_r = {r.x + 44, r.y + 150, 560, 2 * font_body.line_height};
+        canvas_text_fit(c, &font_display, r.x + 44, r.y + 80, 620, tr(L, STR_NO_CHANNELS), COL_TEXT);
+        canvas_text_wrap(c, &font_body, hint_r, tr(L, STR_NO_CHANNELS_HINT), COL_TEXT_2);
+    }
+    if (focused)
+        canvas_round_stroke(c, r, 22, 3, COL_RING);
+}
+
+static void guide_row(ft_canvas *c, ft_rect r, const shell *s, int index, int focused)
+{
+    const channel *ch = &s->cfg.channels.ch[index];
+    ft_rect badge = {r.x + 12, r.y + 10, 56, 40};
+    int ty = r.y + (r.h - font_label.line_height) / 2;
+    if (focused) {
+        ft_rect big = lift(r, 8, 3);
+        ft_rect sh = {big.x + 6, big.y + 12, big.w - 12, big.h - 6};
+        canvas_shadow(c, sh, 20, 0x8C000000u);
+        canvas_round(c, big, 16, COL_FOCUS_BG);
+    } else {
+        canvas_round(c, r, 14, COL_ROW);
+    }
+    number_badge(c, badge, ch, &font_label);
+    canvas_text_fit(c, &font_label, r.x + 92, ty, r.w - 300, ch->name, focused ? COL_ON_FOCUS : COL_TEXT);
+    canvas_text_right(c, &font_body, r.x + r.w - 28, r.y + (r.h - font_body.line_height) / 2, "YouTube",
+                      focused ? COL_ON_FOCUS_2 : COL_TEXT_3);
+}
+
+static void row_title(ft_canvas *c, const shell *s, const shell_row *r, int y)
+{
+    ft_lang L = s->cfg.lang;
+    const char *t = tr(L, r->title);
+    canvas_text(c, &font_label, VIEW_MARGIN, y + 4, t, COL_TEXT);
+    if (r->title == STR_GAMES && s->cfg.profile == PROFILE_CHILD && s->cfg.child_limit_s != 0) {
+        char line[96];
+        ft_rect chip = {VIEW_MARGIN + text_width(&font_label, t) + 20, y, 0, 32};
+        snprintf(line, sizeof line, "%s: %u %s", tr(L, STR_TIME_LEFT),
+                 (unsigned)((s->cfg.play_remaining_s + 59) / 60), tr(L, STR_MINUTES));
+        chip.w = text_width(&font_caption, line) + 28;
+        canvas_round(c, chip, 16, COL_ROW);
+        canvas_text(c, &font_caption, chip.x + 14, chip.y + (chip.h - font_caption.line_height) / 2, line, COL_GOLD);
+    }
+}
+
+static ft_color home_accent(const shell *s, const shell_row *rows, int n)
+{
+    const shell_card *k;
+    if (s->row < 0 || s->row >= n || rows[s->row].n == 0)
+        return s->cfg.channels.n > 0 ? s->cfg.channels.ch[0].accent : art_accent(ART_LIVE_TV);
+    k = &rows[s->row].cards[s->col[s->row] < rows[s->row].n ? s->col[s->row] : 0];
+    if (k->kind == CARD_CHANNEL)
+        return s->cfg.channels.ch[k->arg].accent;
+    return art_accent(card_art(*k));
 }
 
 static void home(ft_canvas *c, const shell *s, const char *clock_text)
 {
-    int focus = s->ntiles > 0 ? s->focus : 0, tile = s->ntiles > 0 ? s->tiles[focus] : TILE_MORE, i;
-    art_id accent = tile_art(tile);
-    ft_rect sub = {VIEW_MARGIN, 154, 760, 2 * font_body.line_height};
+    static shell_row rows[SHELL_MAX_ROWS];
+    home_geo g;
+    int n = home_layout(s, rows, &g), i, j;
+    ft_rect top_fade = {0, 0, VIEW_W, CONTENT_TOP};
+    ft_rect bottom_fade = {0, CONTENT_BOTTOM - 24, VIEW_W, 32};
+    ft_rect bottom_band = {0, CONTENT_BOTTOM + 8, VIEW_W, VIEW_H - CONTENT_BOTTOM - 8};
 
-    backdrop(c, art_accent(accent), 980, 40, 1);
-    canvas_text_fit(c, &font_display, VIEW_MARGIN, 92, 760, shell_tile_label(s, tile), COL_TEXT);
-    canvas_text_wrap(c, &font_body, sub, tr(s->cfg.lang, shelf_line(tile)), COL_TEXT_2);
-    shelf(c, s, tile);
-
-    for (i = 0; i < s->ntiles; i++) {
-        ft_rect r = view_home_tile_rect(s, i);
-        if (i == focus)
-            continue;
-        art_tile(c, r, 16, tile_art(s->tiles[i]), 0, tile_text(s, s->tiles[i]));
-        {
-            ft_rect label = {r.x - 10, r.y + r.h + 18, r.w + 20, font_body.line_height};
-            canvas_text_center(c, &font_body, label, shell_tile_label(s, s->tiles[i]), COL_TEXT_2);
+    backdrop(c, home_accent(s, rows, n), 980, 40, 1);
+    for (i = g.first_row; i < n; i++) {
+        const shell_row *r = &rows[i];
+        int y = g.top[i] - g.offset, row_focus = s->row == i;
+        int col = s->col[i] < r->n ? s->col[i] : 0;
+        if (y >= VIEW_H)
+            break;
+        if (r->title != STR_COUNT)
+            row_title(c, s, r, y);
+        switch (r->style) {
+        case ROW_HERO:
+            hero(c, view_home_card_rect(s, i, 0), s, r->cards[0], row_focus);
+            break;
+        case ROW_GUIDE:
+            guide_row(c, view_home_card_rect(s, i, 0), s, r->cards[0].arg, row_focus);
+            break;
+        case ROW_CARDS:
+            /* Resting cards first, so the focused one lands on top. */
+            for (j = first_card(col, r->n); j < r->n; j++) {
+                ft_rect k = view_home_card_rect(s, i, j);
+                if (k.x >= VIEW_W)
+                    break;
+                if (row_focus && j == col)
+                    continue;
+                if (r->cards[j].kind == CARD_CHANNEL)
+                    channel_card(c, k, &s->cfg.channels.ch[r->cards[j].arg], 0);
+                else
+                    app_card(c, k, s, r->cards[j], 0);
+            }
+            if (row_focus && r->n > 0) {
+                ft_rect k = view_home_card_rect(s, i, col);
+                k = lift(k, k.w / 25, k.h / 25);
+                if (r->cards[col].kind == CARD_CHANNEL)
+                    channel_card(c, k, &s->cfg.channels.ch[r->cards[col].arg], 1);
+                else
+                    app_card(c, k, s, r->cards[col], 1);
+            }
+            break;
         }
     }
-    if (s->ntiles > 0) {
-        ft_rect r = view_home_tile_rect(s, focus);
-        ft_rect big = lift(r, r.w / 20, r.h / 20);
-        ft_rect sh = {big.x + 8, big.y + 22, big.w - 16, big.h - 8};
-        ft_rect label = {big.x - 20, big.y + big.h + 14, big.w + 40, font_label.line_height};
-        canvas_shadow(c, sh, 28, 0xB0000000u);
-        art_tile(c, big, 18, accent, 1, tile_text(s, tile));
-        canvas_text_center(c, &font_label, label, shell_tile_label(s, tile), COL_TEXT);
-    }
-    top_bar(c, s, clock_text);
-    toast(c, s->status, 24);
+    if (g.offset > 0)
+        canvas_gradient(c, top_fade, color_alpha(COL_BG_TOP, 0xF5), color_alpha(COL_BG_TOP, 0x00));
+    canvas_gradient(c, bottom_fade, color_alpha(COL_BG_BOTTOM, 0x00), color_alpha(COL_BG_BOTTOM, 0xF2));
+    canvas_fill(c, bottom_band, color_alpha(COL_BG_BOTTOM, 0xF2));
+    top_bar(c, s, clock_text, 1);
+    toast(c, s->status, 600);
     hint(c, tr(s->cfg.lang, STR_HELP_HOME));
 }
 
-/* ---- lists (Football, Games, More, Parent settings) -------------------- */
+/* ---- lists (Settings, Parent settings) --------------------------------- */
 
 ft_rect view_list_row_rect(int visible_row)
 {
     ft_rect r = {LIST_X, LIST_TOP + visible_row * LIST_STEP, LIST_W, LIST_ROW_H};
     return r;
-}
-
-static art_id screen_art(shell_screen scr)
-{
-    switch (scr) {
-    case SCR_FOOTBALL: return ART_FOOTBALL;
-    case SCR_GAMES: return ART_GAMES;
-    case SCR_SETTINGS:
-    case SCR_PIN: return ART_SETTINGS;
-    case SCR_MORE:
-    case SCR_HOME: break;
-    }
-    return ART_MORE;
-}
-
-static ft_str screen_desc(shell_screen scr)
-{
-    switch (scr) {
-    case SCR_FOOTBALL: return STR_SHELF_FOOTBALL;
-    case SCR_GAMES: return STR_SHELF_GAMES;
-    case SCR_SETTINGS: return STR_DESC_SETTINGS;
-    case SCR_MORE:
-    case SCR_HOME:
-    case SCR_PIN: break;
-    }
-    return STR_SHELF_MORE;
 }
 
 /* "Label: value" rows show the value right-aligned, Settings style. */
@@ -451,7 +638,7 @@ static void list(ft_canvas *c, const shell *s, const char *clock_text)
     char labels[SHELL_MAX_ITEMS][SHELL_LABEL_MAX];
     int n = shell_list(s, labels, SHELL_MAX_ITEMS), first = 0, i;
     ft_lang L = s->cfg.lang;
-    art_id art = screen_art(s->screen);
+    art_id art = s->screen == SCR_SETTINGS ? ART_SETTINGS : ART_GEAR;
     ft_rect title = {0, 34, VIEW_W, font_title.line_height};
     ft_rect hero = {96, 190, 360, 216};
     ft_rect hero_sh = {hero.x + 8, hero.y + 20, hero.w - 16, hero.h - 8};
@@ -459,23 +646,11 @@ static void list(ft_canvas *c, const shell *s, const char *clock_text)
 
     backdrop(c, art_accent(art), 260, 200, 0);
     canvas_text_center(c, &font_title, title, shell_screen_title(s), COL_TEXT);
-    top_bar(c, s, clock_text);
+    top_bar(c, s, clock_text, 0);
     canvas_shadow(c, hero_sh, 30, 0x99000000u);
     art_tile(c, hero, 24, art, 0, NULL);
-    canvas_text_wrap(c, &font_body, desc, tr(L, screen_desc(s->screen)), COL_TEXT_2);
-
-    if (s->screen == SCR_GAMES && s->cfg.profile == PROFILE_CHILD && s->cfg.child_limit_s != 0) {
-        char line[96];
-        ft_rect chip;
-        snprintf(line, sizeof line, "%s: %u %s", tr(L, STR_TIME_LEFT),
-                 (unsigned)((s->cfg.play_remaining_s + 59) / 60), tr(L, STR_MINUTES));
-        chip.x = hero.x;
-        chip.y = desc.y + desc.h + 12;
-        chip.w = text_width(&font_body, line) + 36;
-        chip.h = 40;
-        canvas_round(c, chip, 20, COL_ROW);
-        canvas_text(c, &font_body, chip.x + 18, chip.y + (chip.h - font_body.line_height) / 2, line, COL_GOLD);
-    }
+    canvas_text_wrap(c, &font_body, desc, tr(L, s->screen == SCR_SETTINGS ? STR_DESC_SETTINGS : STR_DESC_MORE),
+                     COL_TEXT_2);
 
     if (s->item >= LIST_VISIBLE)
         first = s->item - LIST_VISIBLE + 1;
@@ -511,7 +686,7 @@ static void pin(ft_canvas *c, const shell *s, const char *clock_text)
     int i;
 
     backdrop(c, art_accent(ART_SETTINGS), 640, 60, 0);
-    top_bar(c, s, clock_text);
+    top_bar(c, s, clock_text, 0);
     art_glyph(c, ART_SETTINGS, VIEW_W / 2, 104, 30, COL_TEXT);
     canvas_text_center(c, &font_title, title, shell_screen_title(s), COL_TEXT);
     canvas_text_center(c, &font_body, sub, tr(L, STR_PIN_HINT), COL_TEXT_2);
@@ -549,6 +724,178 @@ void view_shell(ft_canvas *c, const shell *s, const char *clock_text)
         pin(c, s, clock_text);
     else
         list(c, s, clock_text);
+}
+
+/* ---- live TV ------------------------------------------------------------ */
+
+ft_rect view_live_panel_row_rect(int visible_row)
+{
+    ft_rect r = {24, PANEL_TOP + visible_row * PANEL_STEP, PANEL_W - 48, PANEL_STEP - 8};
+    return r;
+}
+
+static void spinner(ft_canvas *c, int cx, int cy, int radius, uint32_t anim_ms)
+{
+    static const int DX[8] = {0, 707, 1000, 707, 0, -707, -1000, -707};
+    static const int DY[8] = {-1000, -707, 0, 707, 1000, 707, 0, -707};
+    int head = (int)(anim_ms / 110 % 8), i;
+    for (i = 0; i < 8; i++) {
+        int age = (head - i + 8) % 8;
+        canvas_circle(c, cx + DX[i] * radius / 1000, cy + DY[i] * radius / 1000, radius / 5,
+                      color_alpha(COL_TEXT, (unsigned)(255 - age * 28)));
+    }
+}
+
+static void error_text(const player_status *ps, ft_str *title, ft_str *line)
+{
+    switch (ps->error) {
+    case PERR_OFFLINE: *title = STR_ERR_OFFLINE; *line = STR_ERR_OFFLINE_LINE; return;
+    case PERR_NOT_LIVE: *title = STR_ERR_NOT_LIVE; *line = STR_ERR_NOT_LIVE_LINE; return;
+    case PERR_NO_RESOLVER: *title = STR_ERR_ENGINE; *line = STR_ERR_NO_YTDLP_LINE; return;
+    case PERR_NO_JS_RUNTIME: *title = STR_ERR_ENGINE; *line = STR_ERR_NO_DENO_LINE; return;
+    case PERR_NO_ENGINE: *title = STR_ERR_ENGINE; *line = STR_ERR_NO_ENGINE_LINE; return;
+    case PERR_BLOCKED: *title = STR_ERR_BLOCKED; *line = STR_ERR_BLOCKED_LINE; return;
+    case PERR_BAD_CHANNEL: *title = STR_ERR_BAD_CHANNEL; *line = STR_ERR_BAD_CHANNEL_LINE; return;
+    case PERR_TIMEOUT: *title = STR_ERR_TIMEOUT; *line = STR_ERR_TIMEOUT_LINE; return;
+    case PERR_NONE:
+    case PERR_PLAYBACK:
+    case PERR_COUNT: break;
+    }
+    *title = STR_ERR_PLAYBACK;
+    *line = STR_ERR_PLAYBACK_LINE;
+}
+
+static void error_card(ft_canvas *c, const player_status *ps, const channel *ch, ft_lang L)
+{
+    ft_rect card = {290, 190, 700, 320};
+    ft_rect name = {card.x + 40, card.y + 32, card.w - 80, font_caption.line_height};
+    ft_rect title = {card.x + 40, card.y + 70, card.w - 80, font_title.line_height};
+    ft_rect line = {card.x + 60, card.y + 130, card.w - 120, 3 * font_body.line_height};
+    ft_str t, l;
+    error_text(ps, &t, &l);
+    glass(c, card, 28);
+    canvas_text_center(c, &font_caption, name, ch->name, COL_TEXT_3);
+    canvas_text_center(c, &font_title, title, tr(L, t), COL_TEXT);
+    canvas_text_wrap(c, &font_body, line, tr(L, l), COL_TEXT_2);
+    help_lines(c, &font_caption, card.x + 60, card.y + 232, card.w - 120, tr(L, STR_HELP_ERROR), COL_TEXT_3);
+}
+
+static void banner(ft_canvas *c, const live *l, const player_status *ps, const channel *ch, ft_lang L,
+                   const char *clock_text)
+{
+    ft_rect fade = {0, 470, VIEW_W, VIEW_H - 470};
+    ft_rect badge = {VIEW_MARGIN, 560, 104, 76};
+    int x = badge.x + badge.w + 24;
+    canvas_gradient(c, fade, 0x00000000u, 0xE6000000u);
+    number_badge(c, badge, ch, &font_display);
+    canvas_text_fit(c, &font_display, x, 552, 760, ch->name, COL_TEXT);
+    if (ps->state == PLAYER_PLAYING && l->shown == l->current && l->tune_wait_ms == 0) {
+        live_pill(c, x, 612, L);
+        x += text_width(&font_caption, tr(L, STR_LIVE_BADGE)) + 44;
+    }
+    if (ps->video_h > 0 && l->shown == l->current && ps->state == PLAYER_PLAYING) {
+        char q[16];
+        ft_rect chip = {x, 612, 0, 26};
+        snprintf(q, sizeof q, "%dp", ps->video_h);
+        chip.w = text_width(&font_caption, q) + 20;
+        canvas_round_stroke(c, chip, 6, 1, COL_TEXT_2);
+        canvas_text_center(c, &font_caption, chip, q, COL_TEXT_2);
+        x += chip.w + 14;
+    }
+    canvas_text(c, &font_caption, x, 612 + (26 - font_caption.line_height) / 2, "YouTube", COL_TEXT_3);
+    if (clock_text)
+        canvas_text_right(c, &font_title, VIEW_W - VIEW_MARGIN, 566, clock_text, COL_TEXT);
+    hint(c, tr(L, STR_HELP_LIVE));
+}
+
+static void volume_bar(ft_canvas *c, int volume, ft_lang L)
+{
+    ft_rect pill = {VIEW_W - VIEW_MARGIN - 340, 40, 340, 60};
+    ft_rect track = {pill.x + 70, pill.y + 27, 190, 6};
+    ft_rect fill = track;
+    char num[8];
+    glass(c, pill, 30);
+    art_glyph(c, ART_VOLUME, pill.x + 38, pill.y + 30, 15, COL_TEXT);
+    canvas_round(c, track, 3, COL_ROW);
+    fill.w = track.w * volume / 100;
+    if (fill.w > 0)
+        canvas_round(c, fill, 3, COL_TEXT);
+    snprintf(num, sizeof num, "%d", volume);
+    canvas_text_right(c, &font_label, pill.x + pill.w - 24, pill.y + (pill.h - font_label.line_height) / 2, num,
+                      COL_TEXT);
+    (void)L;
+}
+
+static void channel_panel(ft_canvas *c, const live *l, const channel_list *chs, ft_lang L)
+{
+    ft_rect panel = {0, 0, PANEL_W, VIEW_H};
+    ft_rect edge = {PANEL_W - 1, 0, 1, VIEW_H};
+    int first = l->panel_item - PANEL_VISIBLE / 2, i;
+    if (first > chs->n - PANEL_VISIBLE)
+        first = chs->n - PANEL_VISIBLE;
+    if (first < 0)
+        first = 0;
+    canvas_fill(c, panel, COL_PANEL);
+    canvas_fill(c, edge, COL_GLASS_EDGE);
+    canvas_text(c, &font_title, 40, 40, tr(L, STR_ALL_CHANNELS), COL_TEXT);
+    for (i = first; i < chs->n && i < first + PANEL_VISIBLE; i++) {
+        ft_rect r = view_live_panel_row_rect(i - first);
+        ft_rect badge = {r.x + 10, r.y + 7, 50, r.h - 14};
+        int focused = i == l->panel_item;
+        if (focused)
+            canvas_round(c, r, 12, COL_FOCUS_BG);
+        number_badge(c, badge, &chs->ch[i], &font_body);
+        canvas_text_fit(c, &font_label, r.x + 76, r.y + (r.h - font_label.line_height) / 2, r.w - 120,
+                        chs->ch[i].name, focused ? COL_ON_FOCUS : COL_TEXT);
+        if (i == l->current)
+            canvas_circle(c, r.x + r.w - 20, r.y + r.h / 2, 6, COL_LIVE);
+    }
+    if (first > 0)
+        canvas_chevron(c, PANEL_W / 2, PANEL_TOP - 14, 12, 4, 1, COL_TEXT_3);
+    if (first + PANEL_VISIBLE < chs->n)
+        canvas_chevron(c, PANEL_W / 2, PANEL_TOP + PANEL_VISIBLE * PANEL_STEP + 4, 12, 4, 0, COL_TEXT_3);
+    help_lines(c, &font_caption, 40, 628, PANEL_W - 80, tr(L, STR_HELP_PANEL), COL_TEXT_3);
+}
+
+void view_live(ft_canvas *c, const live *l, const player_status *ps, const shell *s, const char *clock_text,
+               int has_picture)
+{
+    const channel_list *chs = &s->cfg.channels;
+    ft_lang L = s->cfg.lang;
+    const channel *shown;
+    int zapping = l->tune_wait_ms > 0 || l->shown != l->current;
+    int failed = ps->state == PLAYER_ERROR && !zapping;
+
+    if (chs->n <= 0 || l->shown < 0 || l->shown >= chs->n) {
+        canvas_clear(c, FT_RGB(0x000000));
+        return;
+    }
+    shown = &chs->ch[l->shown];
+    if (!has_picture || zapping || failed) {
+        /* Never leave the old channel's picture under a new name. */
+        canvas_clear(c, FT_RGB(0x000000));
+        canvas_glow(c, VIEW_W / 2, 330, 560, 320, color_alpha(shown->accent, 0x58));
+    }
+    if (failed) {
+        error_card(c, ps, shown, L);
+    } else if (!has_picture || zapping) {
+        ft_rect name = {0, 236, VIEW_W, font_display.line_height};
+        ft_rect what = {0, 404, VIEW_W, font_body.line_height};
+        char line[96];
+        snprintf(line, sizeof line, "%s %s...", tr(L, STR_CONNECTING), shown->name);
+        canvas_text_center(c, &font_display, name, shown->name, COL_TEXT);
+        spinner(c, VIEW_W / 2, 350, 24, l->anim_ms);
+        canvas_text_center(c, &font_body, what, ps->state == PLAYER_BUFFERING ? tr(L, STR_BUFFERING) : line,
+                           COL_TEXT_2);
+    } else if (ps->state == PLAYER_BUFFERING) {
+        spinner(c, VIEW_W / 2, VIEW_H / 2, 24, l->anim_ms);
+    }
+    if (l->banner_ms > 0 || zapping)
+        banner(c, l, ps, shown, L, clock_text);
+    if (l->volume_ms > 0)
+        volume_bar(c, l->volume, L);
+    if (l->panel_open)
+        channel_panel(c, l, chs, L);
 }
 
 /* ---- Family Racer ------------------------------------------------------- */

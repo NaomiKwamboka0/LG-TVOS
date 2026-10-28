@@ -144,37 +144,80 @@ static void test_text_fit_and_wrap(void)
 static void base(shell_config *cfg)
 {
     memset(cfg, 0, sizeof *cfg);
-    strcpy(cfg->favs[0].name, "SportyTV");
-    cfg->favs[0].received = 1;
-    cfg->nfav = 1;
     cfg->child_games = 0x7;
+    channels_defaults(&cfg->channels);
 }
 
-static void test_home_focus_lifts_tile(void)
+static void test_home_focus_grows_card(void)
 {
     ft_canvas c;
     shell_config cfg;
     static shell s;
-    ft_rect t0;
+    ft_rect k1, k2, hero;
     ft_color with_focus, without_focus;
     uint32_t h0;
     canvas_init(&c, screen, VIEW_W, VIEW_H, VIEW_W);
     base(&cfg);
     shell_init(&s, &cfg);
-    t0 = view_home_tile_rect(&s, 0);
-    CHECK(t0.x >= VIEW_MARGIN);
-    CHECK(view_home_tile_rect(&s, s.ntiles - 1).x + t0.w <= VIEW_W - VIEW_MARGIN);
+    hero = view_home_card_rect(&s, 0, 0);
+    CHECK(hero.x == VIEW_MARGIN && hero.x + hero.w == VIEW_W - VIEW_MARGIN);
+    CHECK(view_top_rect(&s, TOP_PROFILE).x + view_top_rect(&s, TOP_PROFILE).w < VIEW_W - VIEW_MARGIN);
 
+    s.row = 1;
+    k1 = view_home_card_rect(&s, 1, 1);
+    k2 = view_home_card_rect(&s, 1, 2);
+    CHECK(k1.x >= VIEW_MARGIN && k2.x - k1.x == k1.w + 24 && k1.y > hero.y + hero.h);
     view_shell(&c, &s, "20:01");
-    with_focus = canvas_get(&c, t0.x - 3, t0.y + t0.h / 2); /* inside the lifted tile only */
     h0 = canvas_hash(&c);
     view_shell(&c, &s, "20:01");
     CHECK(canvas_hash(&c) == h0); /* deterministic */
-    s.focus = 1;
+    s.col[1] = 1;
     view_shell(&c, &s, "20:01");
-    without_focus = canvas_get(&c, t0.x - 3, t0.y + t0.h / 2);
+    with_focus = canvas_get(&c, k1.x - 4, k1.y + k1.h / 2); /* inside the grown card and its ring only */
+    s.col[1] = 2;
+    view_shell(&c, &s, "20:01");
+    without_focus = canvas_get(&c, k1.x - 4, k1.y + k1.h / 2);
     CHECK(canvas_hash(&c) != h0);
     CHECK(with_focus != without_focus);
+
+    s.col[1] = cfg.channels.n - 1; /* the row slides so the last card shows */
+    k2 = view_home_card_rect(&s, 1, cfg.channels.n - 1);
+    CHECK(k2.x + k2.w <= VIEW_W - VIEW_MARGIN && view_home_card_rect(&s, 1, 0).x < 0);
+    s.row = 2; /* the Games row scrolls up into view */
+    k2 = view_home_card_rect(&s, 2, 0);
+    CHECK(k2.y + k2.h < 668 && view_home_card_rect(&s, 0, 0).y < 96);
+}
+
+/* The info banner shows while banner_ms runs, and only then. */
+static void test_live_banner_comes_and_goes(void)
+{
+    ft_canvas c;
+    shell_config cfg;
+    static shell s;
+    player_status ps;
+    live l;
+    canvas_init(&c, screen, VIEW_W, VIEW_H, VIEW_W);
+    base(&cfg);
+    shell_init(&s, &cfg);
+    memset(&ps, 0, sizeof ps);
+    ps.state = PLAYER_PLAYING;
+    ps.video_h = 480;
+    live_init(&l, cfg.channels.n, 0, 50);
+    canvas_clear(&c, 0xFF808080u);
+    view_live(&c, &l, &ps, &s, "20:01", 1);
+    CHECK(canvas_get(&c, 4, 710) != 0xFF808080u); /* banner shade */
+    CHECK(canvas_get(&c, 640, 100) == 0xFF808080u); /* picture untouched above */
+    l.banner_ms = 0;
+    canvas_clear(&c, 0xFF808080u);
+    view_live(&c, &l, &ps, &s, "20:01", 1);
+    CHECK(canvas_get(&c, 4, 710) == 0xFF808080u);
+    l.volume_ms = 1;
+    view_live(&c, &l, &ps, &s, "20:01", 1);
+    CHECK(canvas_get(&c, VIEW_W - VIEW_MARGIN - 170, 70) != 0xFF808080u);
+    l.panel_open = 1;
+    l.panel_item = cfg.channels.n - 1;
+    view_live(&c, &l, &ps, &s, "20:01", 1);
+    CHECK(canvas_get(&c, view_live_panel_row_rect(7).x + 300, view_live_panel_row_rect(7).y + 4) == COL_FOCUS_BG);
 }
 
 static void test_pin_screen_hides_other_digits(void)
@@ -207,7 +250,7 @@ static void test_list_scrolls_to_focus(void)
     base(&cfg);
     shell_init(&s, &cfg);
     shell_open_settings(&s);
-    s.item = 7; /* eighth item: needs scrolling */
+    s.item = 8; /* ninth item: needs scrolling */
     view_shell(&c, &s, "20:01");
     CHECK(canvas_get(&c, last.x + last.w - 8, last.y + 4) == COL_FOCUS_BG);
     CHECK(last.y + last.h < 620); /* rows stay clear of the status toast */
@@ -222,21 +265,44 @@ static void test_all_views_all_states(void)
     static garden g;
     racer r;
     penalty p;
-    int lang, scr, st, ph, mode, f;
+    int lang, scr, st, ph, mode, f, e;
     canvas_init(&c, screen, VIEW_W, VIEW_H, VIEW_W);
     for (lang = 0; lang < LANG_COUNT; lang++) {
         base(&cfg);
         cfg.lang = (ft_lang)lang;
-        cfg.youtube_supported = lang; /* also cover the six-tile layout */
-        cfg.netflix_supported = lang;
+        cfg.channels.n = lang ? cfg.channels.n : 0; /* also cover "no channels" */
         for (scr = SCR_HOME; scr <= SCR_PIN; scr++)
-            for (f = 0; f < 6; f++) {
+            for (f = 0; f < 3 * TAB_COUNT; f++) {
                 shell_init(&s, &cfg);
                 s.screen = (shell_screen)scr;
-                s.focus = f % s.ntiles;
+                s.tab = (shell_tab)(f % TAB_COUNT);
+                s.row = f / TAB_COUNT * 7 - 1;
+                s.top = f % TOP_COUNT;
+                s.col[1] = f;
                 snprintf(s.status, sizeof s.status, "A very long status message that has to be cut before it reaches the edge of the screen");
                 view_shell(&c, &s, NULL);
             }
+        base(&cfg);
+        cfg.lang = (ft_lang)lang;
+        shell_init(&s, &cfg);
+        for (st = PLAYER_IDLE; st <= PLAYER_ERROR; st++)
+            for (e = PERR_NONE; e < PERR_COUNT; e++)
+                for (f = 0; f < 4; f++) {
+                    player_status ps;
+                    live l;
+                    memset(&ps, 0, sizeof ps);
+                    ps.state = (player_state)st;
+                    ps.error = (player_error)e;
+                    ps.video_h = f * 240;
+                    live_init(&l, cfg.channels.n, (e + f) % cfg.channels.n, f * 33);
+                    l.panel_open = f & 1;
+                    l.panel_item = e % cfg.channels.n;
+                    l.tune_wait_ms = f == 2 ? 300 : 0;
+                    l.shown = f == 2 ? (l.current + 1) % cfg.channels.n : l.current;
+                    l.volume_ms = f;
+                    l.anim_ms = (uint32_t)(e * 97);
+                    view_live(&c, &l, &ps, &s, f ? "20:01" : NULL, f & 2);
+                }
         for (st = RACER_START; st <= RACER_EXITED; st++) {
             racer_init(&r, 3, RACER_HARD, st & 1);
             r.state = (racer_state)st;
@@ -268,7 +334,8 @@ void run_view_tests(void)
     test_blending_and_colour();
     test_fonts_and_kerning();
     test_text_fit_and_wrap();
-    test_home_focus_lifts_tile();
+    test_home_focus_grows_card();
+    test_live_banner_comes_and_goes();
     test_pin_screen_hides_other_digits();
     test_list_scrolls_to_focus();
     test_all_views_all_states();

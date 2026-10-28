@@ -1,11 +1,11 @@
 #ifndef FT_THEME_H
 #define FT_THEME_H
 
-/* Visual language inspired by Apple TV: dark backdrop, a "top shelf" that
- * follows focus, glossy rounded tiles that lift when focused, white focused
- * rows, translucent panels. Our own colours and artwork; no Apple assets or
- * fonts. Logical 1280x720 (plan p.14). Focus is always shown by size and
- * shadow as well as colour. */
+/* Visual language after TCL's Google TV launcher: near-black backdrop
+ * tinted by the focused channel, tabs along the top, a wide banner, rows of
+ * 16:9 cards that grow and take a white ring when focused, and a channel
+ * guide. Our own colours and artwork; no TCL or Google assets. Logical
+ * 1280x720. Focus is always shown by size or a ring as well as colour. */
 
 #include "canvas.h"
 
@@ -13,13 +13,13 @@
 #define VIEW_H 720
 #define VIEW_MARGIN 72 /* keeps content inside typical TV overscan */
 
-#define COL_BG_TOP FT_RGB(0x111827)
-#define COL_BG_BOTTOM FT_RGB(0x05070C)
+#define COL_BG_TOP FT_RGB(0x17181C)
+#define COL_BG_BOTTOM FT_RGB(0x0F1012)
 #define COL_BG COL_BG_BOTTOM
 
 #define COL_TEXT FT_RGB(0xFFFFFF)
-#define COL_TEXT_2 0xA8EBEBF5u /* secondary */
-#define COL_TEXT_3 0x6BEBEBF5u /* hints */
+#define COL_TEXT_2 0xB3E8EAEDu /* secondary */
+#define COL_TEXT_3 0x75E8EAEDu /* hints */
 
 #define COL_GLASS 0xC21B1E28u      /* translucent dark panel */
 #define COL_GLASS_EDGE 0x29FFFFFFu /* hairline on panels */
@@ -29,6 +29,9 @@
 #define COL_ON_FOCUS_2 0xB015161Bu
 #define COL_SHADOW 0x9E000000u
 #define COL_DIM 0xA6000000u /* behind modal cards */
+#define COL_RING FT_RGB(0xFFFFFF) /* focus ring on cards */
+#define COL_LIVE FT_RGB(0xE53935)  /* LIVE badge */
+#define COL_PANEL 0xEB121316u      /* channel list over the picture */
 
 #define COL_GOOD FT_RGB(0x31C46C)
 #define COL_BAD FT_RGB(0xFF5B4F)

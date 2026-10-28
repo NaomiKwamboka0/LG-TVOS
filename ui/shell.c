@@ -3,13 +3,8 @@
 #include <stdio.h>
 #include <string.h>
 
-static const ft_str TILE_LABEL[TILE_COUNT] = {
-    STR_LIVE_TV, STR_YOUTUBE, STR_FOOTBALL, STR_GAMES, STR_NETFLIX, STR_MORE
-};
-static const ft_str TILE_HINT[TILE_COUNT] = {
-    STR_LIVE_TV_HINT, STR_APP_HINT, STR_FOOTBALL_HINT, STR_GAMES_HINT, STR_APP_HINT, STR_MORE_HINT
-};
 static const ft_str GAME_NAME[GAME_COUNT] = {STR_GAME_RACER, STR_GAME_PENALTY, STR_GAME_GARDEN};
+static const ft_str TAB_NAME[TAB_COUNT] = {STR_FOR_YOU, STR_LIVE_TV, STR_APPS};
 static const ft_str QUALITY_LABEL[] = {STR_QUALITY_360, STR_QUALITY_480, STR_QUALITY_720};
 #define QUALITY_LABELS ((int)(sizeof QUALITY_LABEL / sizeof QUALITY_LABEL[0]))
 
@@ -19,34 +14,29 @@ typedef struct {
     int arg;
 } item;
 
-const char *shell_tile_label(const shell *s, int tile)
-{
-    return tile >= 0 && tile < TILE_COUNT ? tr(s->cfg.lang, TILE_LABEL[tile]) : "?";
-}
-
-const char *shell_tile_hint(const shell *s, int tile)
-{
-    return tile >= 0 && tile < TILE_COUNT ? tr(s->cfg.lang, TILE_HINT[tile]) : "";
-}
-
 const char *shell_game_name(ft_lang lang, int game)
 {
     return game >= 0 && game < GAME_COUNT ? tr(lang, GAME_NAME[game]) : "?";
 }
 
-static void layout(shell *s)
+const char *shell_tab_label(ft_lang lang, int tab)
 {
-    int i;
-    s->ntiles = 0;
-    for (i = 0; i < TILE_COUNT; i++) {
-        if (i == TILE_YOUTUBE && !s->cfg.youtube_supported)
-            continue;
-        if (i == TILE_NETFLIX && !s->cfg.netflix_supported)
-            continue;
-        s->tiles[s->ntiles++] = i;
+    return tab >= 0 && tab < TAB_COUNT ? tr(lang, TAB_NAME[tab]) : "?";
+}
+
+const char *shell_card_label(const shell *s, shell_card c)
+{
+    ft_lang L = s->cfg.lang;
+    switch (c.kind) {
+    case CARD_CHANNEL:
+        return c.arg >= 0 && c.arg < s->cfg.channels.n ? s->cfg.channels.ch[c.arg].name : "?";
+    case CARD_GAME: return shell_game_name(L, c.arg);
+    case CARD_SETTINGS: return tr(L, STR_PARENT_SETTINGS);
+    case CARD_PROFILE: return tr(L, s->cfg.profile == PROFILE_PARENT ? STR_TO_CHILD : STR_TO_PARENT);
+    case CARD_ABOUT: return tr(L, STR_ABOUT);
+    case CARD_NO_CHANNELS: return tr(L, STR_NO_CHANNELS);
     }
-    if (s->focus >= s->ntiles)
-        s->focus = 0;
+    return "?";
 }
 
 void shell_clear_pin(shell *s)
@@ -56,23 +46,29 @@ void shell_clear_pin(shell *s)
     s->pin_pos = 0;
 }
 
+static void go_home(shell *s, shell_tab tab)
+{
+    s->screen = SCR_HOME;
+    s->tab = tab;
+    s->row = 0;
+    s->top = tab;
+    memset(s->col, 0, sizeof s->col);
+}
+
 void shell_init(shell *s, const shell_config *cfg)
 {
     memset(s, 0, sizeof *s);
     s->cfg = *cfg;
-    s->screen = SCR_HOME;
+    go_home(s, TAB_FOR_YOU);
     shell_clear_pin(s);
-    layout(s);
 }
 
 void shell_set_profile(shell *s, profile_role p)
 {
     s->cfg.profile = p;
-    s->screen = SCR_HOME;
-    s->focus = 0;
+    go_home(s, TAB_FOR_YOU);
     s->item = 0;
     shell_clear_pin(s);
-    layout(s);
 }
 
 void shell_open_pin(shell *s, pin_purpose why)
@@ -86,10 +82,102 @@ void shell_open_pin(shell *s, pin_purpose why)
 
 void shell_open_settings(shell *s)
 {
+    /* Back returns to wherever Parent settings was opened from (Home or the
+     * Settings list); changing the PIN from inside keeps that origin. */
+    shell_screen from = s->screen == SCR_PIN ? s->pin_return : s->screen;
+    if (from == SCR_HOME || from == SCR_MORE)
+        s->settings_return = from;
+    else if (from != SCR_SETTINGS)
+        s->settings_return = SCR_MORE;
     s->screen = SCR_SETTINGS;
     s->item = 0;
     shell_clear_pin(s);
 }
+
+/* ---- home rows ---------------------------------------------------------- */
+
+static int allowed_game(const shell *s, int g)
+{
+    return s->cfg.profile == PROFILE_PARENT || (s->cfg.child_games & (1u << g));
+}
+
+static shell_row *new_row(shell_row *out, int *n, int max, row_style style, ft_str title)
+{
+    shell_row *r;
+    if (*n >= max)
+        return NULL;
+    r = &out[(*n)++];
+    r->style = style;
+    r->title = title;
+    r->n = 0;
+    return r;
+}
+
+static void put(shell_row *r, card_kind kind, int arg)
+{
+    if (r && r->n < SHELL_ROW_MAX) {
+        r->cards[r->n].kind = kind;
+        r->cards[r->n].arg = arg;
+        r->n++;
+    }
+}
+
+static void games_row(const shell *s, shell_row *out, int *n, int max)
+{
+    shell_row *r = new_row(out, n, max, ROW_CARDS, STR_GAMES);
+    int g;
+    for (g = 0; g < GAME_COUNT; g++)
+        if (allowed_game(s, g))
+            put(r, CARD_GAME, g);
+    if (r && r->n == 0)
+        (*n)--; /* a child with every game blocked sees no empty row */
+}
+
+int shell_home_rows(const shell *s, shell_row *out, int max)
+{
+    const channel_list *chs = &s->cfg.channels;
+    shell_row *r;
+    int n = 0, i;
+
+    switch (s->tab) {
+    case TAB_FOR_YOU:
+        r = new_row(out, &n, max, ROW_HERO, STR_COUNT);
+        if (chs->n > 0) {
+            int last = s->cfg.last_channel;
+            put(r, CARD_CHANNEL, last >= 0 && last < chs->n ? last : 0);
+            r = new_row(out, &n, max, ROW_CARDS, STR_LIVE_CHANNELS);
+            for (i = 0; i < chs->n; i++)
+                put(r, CARD_CHANNEL, i);
+        } else {
+            put(r, CARD_NO_CHANNELS, 0);
+        }
+        games_row(s, out, &n, max);
+        break;
+    case TAB_LIVE:
+        if (chs->n == 0) {
+            r = new_row(out, &n, max, ROW_CARDS, STR_ALL_CHANNELS);
+            put(r, CARD_NO_CHANNELS, 0);
+        }
+        for (i = 0; i < chs->n; i++) {
+            r = new_row(out, &n, max, ROW_GUIDE, i == 0 ? STR_ALL_CHANNELS : STR_COUNT);
+            put(r, CARD_CHANNEL, i);
+        }
+        break;
+    case TAB_APPS:
+        games_row(s, out, &n, max);
+        r = new_row(out, &n, max, ROW_CARDS, STR_FAMILY);
+        if (s->cfg.profile == PROFILE_PARENT)
+            put(r, CARD_SETTINGS, 0);
+        put(r, CARD_PROFILE, 0);
+        put(r, CARD_ABOUT, 0);
+        break;
+    case TAB_COUNT:
+        break;
+    }
+    return n;
+}
+
+/* ---- lists (Settings, Parent settings) ---------------------------------- */
 
 static int add(item *out, int n, int max, const char *label, shell_act act, int arg)
 {
@@ -131,31 +219,18 @@ static int settings_items(const shell *s, item *out, int max)
 
 static int items(const shell *s, item *out, int max)
 {
-    int n = 0, i;
-    int parent = s->cfg.profile == PROFILE_PARENT;
+    int n = 0;
     ft_lang L = s->cfg.lang;
 
     switch (s->screen) {
-    case SCR_FOOTBALL:
-        for (i = 0; i < s->cfg.nfav && n < max - 1; i++)
-            if (s->cfg.favs[i].received == 1)
-                n = add(out, n, max, s->cfg.favs[i].name, ACT_TUNE_FAVOURITE, i);
-        n = add(out, n, max, tr(L, STR_ALL_CHANNELS), ACT_OPEN_CHANNEL_LIST, 0);
-        break;
-    case SCR_GAMES:
-        for (i = 0; i < GAME_COUNT; i++)
-            if (parent || (s->cfg.child_games & (1u << i)))
-                n = add(out, n, max, shell_game_name(L, i), ACT_LAUNCH_GAME, i);
-        break;
     case SCR_MORE:
-        if (parent) {
-            n = add(out, n, max, tr(L, STR_WEB_SEARCH), ACT_WEB_SEARCH, 0);
+        if (s->cfg.profile == PROFILE_PARENT) {
             n = add(out, n, max, tr(L, STR_TO_CHILD), ACT_SWITCH_PROFILE, 0);
             n = add(out, n, max, tr(L, STR_PARENT_SETTINGS), ACT_OPEN_PARENT_SETTINGS, 0);
-            n = add(out, n, max, tr(L, STR_APP_STATUS), ACT_SHOW_SUPPORT, 0);
         } else {
             n = add(out, n, max, tr(L, STR_TO_PARENT), ACT_SWITCH_PROFILE, 0);
         }
+        n = add(out, n, max, tr(L, STR_ABOUT), ACT_ABOUT, 0);
         break;
     case SCR_SETTINGS:
         n = settings_items(s, out, max);
@@ -182,9 +257,7 @@ const char *shell_screen_title(const shell *s)
 {
     ft_lang L = s->cfg.lang;
     switch (s->screen) {
-    case SCR_FOOTBALL: return tr(L, STR_FOOTBALL);
-    case SCR_GAMES: return tr(L, STR_GAMES);
-    case SCR_MORE: return tr(L, STR_MORE);
+    case SCR_MORE: return tr(L, STR_SETTINGS);
     case SCR_SETTINGS: return tr(L, STR_PARENT_SETTINGS);
     case SCR_PIN:
         switch (s->pin_for) {
@@ -199,38 +272,96 @@ const char *shell_screen_title(const shell *s)
     return tr(L, STR_FAMILY_TV);
 }
 
+/* ---- keys --------------------------------------------------------------- */
+
 static void open_list(shell *s, shell_screen scr)
 {
     s->screen = scr;
     s->item = 0;
 }
 
-static shell_action home_key(shell *s, ft_key k)
+static void select_tab(shell *s, int tab)
+{
+    if (tab != (int)s->tab) {
+        s->tab = (shell_tab)tab;
+        memset(s->col, 0, sizeof s->col);
+    }
+}
+
+static shell_action card_action(shell_card c)
 {
     shell_action a = {ACT_NONE, 0};
-    int f = s->focus;
-
-    if (k == FT_LEFT && f % SHELL_COLS > 0)
-        f--;
-    else if (k == FT_RIGHT && f % SHELL_COLS < SHELL_COLS - 1 && f + 1 < s->ntiles)
-        f++;
-    else if (k == FT_UP && f >= SHELL_COLS)
-        f -= SHELL_COLS;
-    else if (k == FT_DOWN && (f / SHELL_COLS + 1) * SHELL_COLS < s->ntiles)
-        f = f + SHELL_COLS < s->ntiles ? f + SHELL_COLS : s->ntiles - 1; /* no dead end on a short row */
-    else if (k == FT_OK && s->ntiles > 0) {
-        switch ((shell_tile)s->tiles[f]) {
-        case TILE_LIVE_TV: a.act = ACT_OPEN_BROADCAST; break;
-        case TILE_YOUTUBE: a.act = ACT_OPEN_YOUTUBE; break;
-        case TILE_NETFLIX: a.act = ACT_OPEN_NETFLIX; break;
-        case TILE_FOOTBALL: open_list(s, SCR_FOOTBALL); break;
-        case TILE_GAMES: open_list(s, SCR_GAMES); break;
-        case TILE_MORE: open_list(s, SCR_MORE); break;
-        case TILE_COUNT: break;
-        }
+    switch (c.kind) {
+    case CARD_CHANNEL: a.act = ACT_PLAY_CHANNEL; break;
+    case CARD_GAME: a.act = ACT_LAUNCH_GAME; break;
+    case CARD_SETTINGS: a.act = ACT_OPEN_PARENT_SETTINGS; break;
+    case CARD_PROFILE: a.act = ACT_SWITCH_PROFILE; break;
+    case CARD_ABOUT: a.act = ACT_ABOUT; break;
+    case CARD_NO_CHANNELS: break;
     }
-    /* Back on Home is left to the vendor (plan p.14). */
-    s->focus = f;
+    a.arg = c.arg;
+    return a;
+}
+
+/* Tabs switch as soon as they are focused, like on a TV launcher. */
+static shell_action top_key(shell *s, ft_key k, int nrows)
+{
+    shell_action a = {ACT_NONE, 0};
+    if (k == FT_LEFT && s->top > 0) {
+        s->top--;
+        if (s->top < TAB_COUNT)
+            select_tab(s, s->top);
+    } else if (k == FT_RIGHT && s->top < TOP_COUNT - 1) {
+        s->top++;
+        if (s->top < TAB_COUNT)
+            select_tab(s, s->top);
+    } else if (k == FT_DOWN || (k == FT_OK && s->top < TAB_COUNT)) {
+        if (nrows > 0)
+            s->row = 0;
+    } else if (k == FT_OK && s->top == TOP_GEAR) {
+        open_list(s, SCR_MORE);
+    } else if (k == FT_OK && s->top == TOP_PROFILE) {
+        a.act = ACT_SWITCH_PROFILE;
+    } else if (k == FT_BACK && s->tab != TAB_FOR_YOU) {
+        select_tab(s, TAB_FOR_YOU);
+        s->top = TAB_FOR_YOU;
+    }
+    return a;
+}
+
+static shell_action home_key(shell *s, ft_key k)
+{
+    shell_row rows[SHELL_MAX_ROWS];
+    int nrows = shell_home_rows(s, rows, SHELL_MAX_ROWS);
+    shell_action a = {ACT_NONE, 0};
+    int *col;
+    const shell_row *r;
+
+    if (s->row >= nrows)
+        s->row = nrows - 1;
+    if (s->row < 0)
+        return top_key(s, k, nrows);
+    r = &rows[s->row];
+    col = &s->col[s->row];
+    if (*col >= r->n)
+        *col = r->n > 0 ? r->n - 1 : 0;
+
+    if (k == FT_LEFT && *col > 0) {
+        (*col)--;
+    } else if (k == FT_RIGHT && *col < r->n - 1) {
+        (*col)++;
+    } else if (k == FT_UP) {
+        s->row--;
+        if (s->row < 0)
+            s->top = s->tab;
+    } else if (k == FT_DOWN && s->row < nrows - 1) {
+        s->row++;
+    } else if (k == FT_OK && r->n > 0) {
+        a = card_action(r->cards[*col]);
+    } else if (k == FT_BACK) {
+        s->row = -1;
+        s->top = s->tab;
+    }
     return a;
 }
 
@@ -281,10 +412,10 @@ shell_action shell_key(shell *s, ft_key k)
         s->item++;
     } else if (k == FT_BACK) {
         if (s->screen == SCR_SETTINGS) {
-            open_list(s, SCR_MORE);
+            open_list(s, s->settings_return);
             a.act = ACT_SETTINGS_CLOSED;
         } else {
-            s->screen = SCR_HOME;
+            s->screen = SCR_HOME; /* focus stays on the gear */
         }
     } else if (k == FT_OK && n > 0) {
         a.act = it[s->item].act;

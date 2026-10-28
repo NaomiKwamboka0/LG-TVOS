@@ -52,6 +52,8 @@ typedef struct player player;
 player *player_create_stub(const player_config *cfg);
 /* NULL when built without libmpv or when libmpv cannot start. */
 player *player_create_mpv(const player_config *cfg);
+/* Fails every channel with PERR_NO_ENGINE, so the family sees why. */
+player *player_create_unavailable(const player_config *cfg);
 void player_destroy(player *p);
 
 /* Starts a channel (stopping any other). Returns at once; watch the state. */

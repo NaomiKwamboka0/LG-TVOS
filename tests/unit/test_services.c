@@ -281,11 +281,17 @@ static void enter_pin(session *ss, shell *s, const char *pin)
     }
 }
 
+/* Home, up to the top bar, across to the gear, OK: the Settings list. */
 static void open_more(session *ss, shell *s)
 {
     while (s->screen != SCR_HOME)
         press(ss, s, FT_BACK);
-    s->focus = s->ntiles - 1; /* More is always the last tile */
+    if (s->row >= 0)
+        press(ss, s, FT_BACK);
+    while (s->top < TOP_GEAR)
+        press(ss, s, FT_RIGHT);
+    while (s->top > TOP_GEAR)
+        press(ss, s, FT_LEFT);
     press(ss, s, FT_OK);
 }
 
@@ -317,7 +323,7 @@ static void test_session_pin_creation_and_child_switch(void)
     fresh(&ss, &s, path);
 
     open_more(&ss, &s);
-    choose_item(&ss, &s, 1); /* Switch to child profile */
+    choose_item(&ss, &s, 0); /* Switch to child profile */
     CHECK(s.screen == SCR_PIN && s.pin_for == PIN_NEW_FIRST);
     enter_pin(&ss, &s, "1234");
     CHECK(s.screen == SCR_PIN && s.pin_for == PIN_NEW_CONFIRM);
@@ -337,8 +343,8 @@ static void test_session_pin_creation_and_child_switch(void)
     session_dispatch(&ss, &s, (shell_action){ACT_CYCLE_LIMIT, 0});
     session_dispatch(&ss, &s, (shell_action){ACT_OPEN_PARENT_SETTINGS, 0});
     CHECK(ss.settings.play.daily_limit_s == 0 && s.screen != SCR_SETTINGS);
-    session_dispatch(&ss, &s, (shell_action){ACT_WEB_SEARCH, 0});
-    CHECK(strstr(s.status, "not yet verified") != NULL);
+    session_dispatch(&ss, &s, (shell_action){ACT_CYCLE_QUALITY, 0});
+    CHECK(ss.settings.quality == QUALITY_480);
 
     /* Back to parent with the right PIN. */
     open_more(&ss, &s);
@@ -359,7 +365,7 @@ static void test_session_wrong_pin_lockout_persists(void)
     clock_ms = 1000;
     fresh(&ss, &s, path);
     open_more(&ss, &s);
-    choose_item(&ss, &s, 1);
+    choose_item(&ss, &s, 0);
     enter_pin(&ss, &s, "0007");
     enter_pin(&ss, &s, "0007");
     CHECK(s.cfg.profile == PROFILE_CHILD);
@@ -405,7 +411,7 @@ static void test_session_play_time_and_settings(void)
 
     /* Parent settings: create PIN, set 30 minutes, switch language, block Block Garden. */
     open_more(&ss, &s);
-    choose_item(&ss, &s, 2);
+    choose_item(&ss, &s, 1); /* Parent settings */
     enter_pin(&ss, &s, "5555");
     enter_pin(&ss, &s, "5555");
     CHECK(s.screen == SCR_SETTINGS && ss.unlocked);
@@ -437,7 +443,7 @@ static void test_session_play_time_and_settings(void)
     CHECK(ss.settings.quality == QUALITY_360);
 
     /* Child plays until the allowance runs out. */
-    choose_item(&ss, &s, 1);
+    choose_item(&ss, &s, 0);
     CHECK(s.cfg.profile == PROFILE_CHILD);
     CHECK(session_dispatch(&ss, &s, (shell_action){ACT_LAUNCH_GAME, GAME_RACER}) == GAME_RACER);
     CHECK(session_dispatch(&ss, &s, (shell_action){ACT_LAUNCH_GAME, GAME_GARDEN}) == -1);
@@ -462,12 +468,12 @@ static void test_session_play_time_and_settings(void)
     enter_pin(&ss, &s, "5555");
     CHECK(s.cfg.profile == PROFILE_PARENT);
     open_more(&ss, &s);
-    choose_item(&ss, &s, 2);
+    choose_item(&ss, &s, 1);
     enter_pin(&ss, &s, "5555");
     choose_item(&ss, &s, 2);
     CHECK(ss.settings.play.bonus_s == 900);
     press(&ss, &s, FT_BACK);
-    choose_item(&ss, &s, 1);
+    choose_item(&ss, &s, 0);
     CHECK(session_dispatch(&ss, &s, (shell_action){ACT_LAUNCH_GAME, GAME_RACER}) == GAME_RACER);
 
     /* Next Nairobi day: fresh allowance. */

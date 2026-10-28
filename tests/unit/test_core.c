@@ -7,7 +7,9 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "channels.h"
 #include "garden.h"
+#include "live.h"
 #include "penalty.h"
 #include "platform.h"
 #include "racer.h"
@@ -381,113 +383,195 @@ static uint64_t fixed_ms(void) { return 1000; }
 static void base_config(shell_config *c)
 {
     memset(c, 0, sizeof *c);
-    strcpy(c->favs[0].name, "Citizen TV");
-    c->favs[0].received = -1;
-    strcpy(c->favs[1].name, "SportyTV");
-    c->favs[1].received = 1;
-    c->nfav = 2;
+    c->child_games = 0x7;
+    channels_defaults(&c->channels);
 }
 
-static void test_shell_hides_untested_apps(void)
+static int rows_of(const shell *s, shell_row *rows)
 {
-    shell_config c;
-    shell s;
-    base_config(&c);
-    shell_init(&s, &c);
-    CHECK(s.ntiles == 4);
-    CHECK(s.tiles[0] == TILE_LIVE_TV && s.tiles[1] == TILE_FOOTBALL);
-    c.youtube_supported = 1;
-    shell_init(&s, &c);
-    CHECK(s.ntiles == 5 && s.tiles[1] == TILE_YOUTUBE);
+    return shell_home_rows(s, rows, SHELL_MAX_ROWS);
 }
 
-static void test_shell_dad_reaches_favourite_in_two_choices(void)
+static void test_home_rows_per_tab(void)
+{
+    static shell_row rows[SHELL_MAX_ROWS];
+    shell_config c;
+    static shell s;
+    int n, i, guide = 1;
+    base_config(&c);
+    c.last_channel = 3;
+    shell_init(&s, &c);
+
+    n = rows_of(&s, rows); /* For you: banner, channels, games */
+    CHECK(n == 3);
+    CHECK(rows[0].style == ROW_HERO && rows[0].n == 1);
+    CHECK(rows[0].cards[0].kind == CARD_CHANNEL && rows[0].cards[0].arg == 3); /* last watched */
+    CHECK(rows[1].style == ROW_CARDS && rows[1].n == c.channels.n && rows[1].title == STR_LIVE_CHANNELS);
+    CHECK(rows[2].n == GAME_COUNT && rows[2].cards[0].kind == CARD_GAME);
+
+    s.tab = TAB_LIVE; /* a guide row per channel */
+    n = rows_of(&s, rows);
+    CHECK(n == c.channels.n);
+    for (i = 0; i < n; i++)
+        if (rows[i].style != ROW_GUIDE || rows[i].n != 1 || rows[i].cards[0].arg != i)
+            guide = 0;
+    CHECK(guide && rows[0].title == STR_ALL_CHANNELS && rows[1].title == STR_COUNT);
+
+    s.tab = TAB_APPS;
+    n = rows_of(&s, rows);
+    CHECK(n == 2 && rows[0].n == GAME_COUNT);
+    CHECK(rows[1].n == 3 && rows[1].cards[0].kind == CARD_SETTINGS && rows[1].cards[2].kind == CARD_ABOUT);
+
+    c.last_channel = 99; /* stale: falls back to the first channel */
+    c.channels.n = 0;    /* and with no channels at all, say so */
+    shell_init(&s, &c);
+    n = rows_of(&s, rows);
+    CHECK(n == 2 && rows[0].cards[0].kind == CARD_NO_CHANNELS);
+    CHECK(shell_key(&s, FT_OK).act == ACT_NONE);
+    s.tab = TAB_LIVE;
+    CHECK(rows_of(&s, rows) == 1 && rows[0].cards[0].kind == CARD_NO_CHANNELS);
+    base_config(&c);
+    c.last_channel = 99;
+    shell_init(&s, &c);
+    rows_of(&s, rows);
+    CHECK(rows[0].cards[0].arg == 0);
+}
+
+static void test_shell_dad_reaches_channel_in_two_presses(void)
 {
     const char *path = TMP "/dad-settings.sav";
     shell_config c;
-    shell s;
-    session ss;
+    static shell s;
+    static session ss;
     shell_action a;
-    int ok_presses = 0;
     test_clean_save(path);
     base_config(&c);
     shell_init(&s, &c);
     session_init_with_clock(&ss, &s, path, fixed_ms, fixed_wall);
-    shell_key(&s, FT_RIGHT); /* focus Football */
-    a = shell_key(&s, FT_OK);
-    ok_presses++;
-    CHECK(s.screen == SCR_FOOTBALL && a.act == ACT_NONE);
-    a = shell_key(&s, FT_OK);
-    ok_presses++;
-    CHECK(a.act == ACT_TUNE_FAVOURITE && a.arg == 1); /* SportyTV, the only received one */
-    CHECK(ok_presses <= 2);
 
-    session_dispatch(&ss, &s, a);
-    CHECK(strstr(s.status, "channel list") != NULL); /* sim cannot tune directly: fallback */
-}
+    a = shell_key(&s, FT_OK); /* one press: the banner channel */
+    CHECK(a.act == ACT_PLAY_CHANNEL && a.arg == 0);
+    CHECK(session_dispatch(&ss, &s, a) == SESSION_WATCH && ss.watch_channel == 0);
 
-static void test_shell_unreceived_channels_not_shortcuts(void)
-{
-    shell_config c;
-    shell s;
-    char labels[SHELL_MAX_ITEMS][SHELL_LABEL_MAX];
-    int n;
-    base_config(&c);
-    c.favs[1].received = 0;
-    shell_init(&s, &c);
+    shell_key(&s, FT_DOWN); /* any channel: down, across, OK */
     shell_key(&s, FT_RIGHT);
-    shell_key(&s, FT_OK);
-    n = shell_list(&s, labels, SHELL_MAX_ITEMS);
-    CHECK(n == 1);
-    CHECK(strstr(labels[0], "channel list") != NULL);
+    shell_key(&s, FT_RIGHT);
+    a = shell_key(&s, FT_OK);
+    CHECK(a.act == ACT_PLAY_CHANNEL && a.arg == 2);
+    CHECK(session_dispatch(&ss, &s, (shell_action){ACT_PLAY_CHANNEL, c.channels.n}) == -1); /* bad index */
+    test_clean_save(path);
 }
 
 static void test_shell_child_profile_limits(void)
 {
+    static shell_row rows[SHELL_MAX_ROWS];
     shell_config c;
-    shell s;
+    static shell s;
     char labels[SHELL_MAX_ITEMS][SHELL_LABEL_MAX];
-    int n, i, has_search = 0, has_settings = 0;
+    int n, i, has_settings = 0;
     base_config(&c);
     c.profile = PROFILE_CHILD;
     c.child_games = 1u << GAME_RACER;
     shell_init(&s, &c);
-    shell_key(&s, FT_RIGHT);
-    shell_key(&s, FT_RIGHT); /* Games */
-    shell_key(&s, FT_OK);
+    n = rows_of(&s, rows);
+    CHECK(n == 3 && rows[2].n == 1 && rows[2].cards[0].arg == GAME_RACER);
+
+    s.tab = TAB_APPS;
+    n = rows_of(&s, rows);
+    CHECK(n == 2 && rows[1].n == 2); /* no Parent settings card */
+    for (i = 0; i < rows[1].n; i++)
+        if (rows[1].cards[i].kind == CARD_SETTINGS)
+            has_settings = 1;
+    CHECK(!has_settings);
+    CHECK(strcmp(shell_card_label(&s, rows[1].cards[0]), "Switch to parent profile") == 0);
+
+    s.screen = SCR_MORE;
     n = shell_list(&s, labels, SHELL_MAX_ITEMS);
-    CHECK(n == 1 && strcmp(labels[0], "Family Racer") == 0);
-    shell_key(&s, FT_BACK);
-    CHECK(s.screen == SCR_HOME);
-    shell_key(&s, FT_DOWN); /* short last row: lands on More */
-    shell_key(&s, FT_OK);
-    CHECK(s.screen == SCR_MORE);
-    n = shell_list(&s, labels, SHELL_MAX_ITEMS);
-    for (i = 0; i < n; i++) {
-        if (strstr(labels[i], "search"))
-            has_search = 1;
+    has_settings = 0;
+    for (i = 0; i < n; i++)
         if (strstr(labels[i], "settings"))
             has_settings = 1;
-    }
-    CHECK(!has_search && !has_settings);
+    CHECK(n == 2 && !has_settings);
+
+    c.child_games = 0; /* every game blocked: no empty Games row */
+    shell_init(&s, &c);
+    CHECK(rows_of(&s, rows) == 2);
 }
 
-static void test_shell_every_tile_reachable(void)
+/* Every card on every tab, and each top bar item, can be reached with the arrows. */
+static void test_shell_every_card_reachable(void)
+{
+    static shell_row rows[SHELL_MAX_ROWS];
+    shell_config c;
+    static shell s;
+    int tab, total = 0, seen = 0, n, r, i;
+    base_config(&c);
+    shell_init(&s, &c);
+    shell_key(&s, FT_UP); /* banner -> top bar */
+    CHECK(s.row == -1 && s.top == TAB_FOR_YOU);
+    for (tab = 0; tab < TAB_COUNT; tab++) {
+        while (s.top < tab)
+            shell_key(&s, FT_RIGHT);
+        CHECK(s.tab == (shell_tab)tab);
+        n = rows_of(&s, rows);
+        shell_key(&s, FT_DOWN);
+        for (r = 0; r < n; r++) {
+            total += rows[r].n;
+            CHECK(s.row == r);
+            for (i = 0; i < rows[r].n; i++) {
+                if (s.col[r] == i)
+                    seen++;
+                shell_key(&s, FT_RIGHT);
+            }
+            shell_key(&s, FT_DOWN);
+        }
+        while (s.row >= 0)
+            shell_key(&s, FT_UP);
+    }
+    CHECK(seen == total && total > 0);
+    shell_key(&s, FT_RIGHT);
+    CHECK(s.top == TOP_GEAR && s.tab == TAB_APPS); /* the tab stays */
+    shell_key(&s, FT_RIGHT);
+    CHECK(s.top == TOP_PROFILE);
+    CHECK(shell_key(&s, FT_OK).act == ACT_SWITCH_PROFILE);
+    shell_key(&s, FT_LEFT);
+    shell_key(&s, FT_OK);
+    CHECK(s.screen == SCR_MORE);
+    shell_key(&s, FT_BACK);
+    CHECK(s.screen == SCR_HOME && s.row == -1 && s.top == TOP_GEAR);
+}
+
+static void test_shell_back_tabs_and_columns(void)
 {
     shell_config c;
-    shell s;
-    int seen[TILE_COUNT] = {0}, i, k;
-    static const ft_key walk[] = {FT_RIGHT, FT_RIGHT, FT_DOWN, FT_LEFT, FT_LEFT, FT_UP};
+    static shell s;
     base_config(&c);
-    c.youtube_supported = c.netflix_supported = 1;
     shell_init(&s, &c);
-    seen[s.tiles[s.focus]] = 1;
-    for (k = 0; k < 6; k++) {
-        shell_key(&s, walk[k]);
-        seen[s.tiles[s.focus]] = 1;
-    }
-    for (i = 0; i < TILE_COUNT; i++)
-        CHECK(seen[i]);
+    shell_key(&s, FT_DOWN);
+    shell_key(&s, FT_RIGHT);
+    shell_key(&s, FT_RIGHT);
+    shell_key(&s, FT_RIGHT);
+    shell_key(&s, FT_DOWN);
+    shell_key(&s, FT_UP);
+    CHECK(s.row == 1 && s.col[1] == 3); /* the row kept its place */
+    shell_key(&s, FT_BACK);
+    CHECK(s.row == -1 && s.top == TAB_FOR_YOU);
+    shell_key(&s, FT_RIGHT);
+    CHECK(s.tab == TAB_LIVE && s.col[1] == 0); /* a new tab starts at the left */
+    shell_key(&s, FT_BACK);
+    CHECK(s.tab == TAB_FOR_YOU && s.top == TAB_FOR_YOU);
+    shell_key(&s, FT_OK); /* OK on a tab goes into it */
+    CHECK(s.row == 0);
+
+    /* Parent settings closes back to wherever it was opened from. */
+    shell_open_settings(&s);
+    CHECK(shell_key(&s, FT_BACK).act == ACT_SETTINGS_CLOSED && s.screen == SCR_HOME);
+    s.screen = SCR_MORE;
+    shell_open_pin(&s, PIN_FOR_SETTINGS);
+    shell_open_settings(&s);
+    shell_open_pin(&s, PIN_NEW_FIRST); /* change PIN from inside */
+    shell_open_settings(&s);
+    CHECK(shell_key(&s, FT_BACK).act == ACT_SETTINGS_CLOSED && s.screen == SCR_MORE);
 }
 
 static void test_shell_kiswahili_labels(void)
@@ -497,8 +581,69 @@ static void test_shell_kiswahili_labels(void)
     base_config(&c);
     c.lang = LANG_SW;
     shell_init(&s, &c);
-    CHECK(strcmp(shell_tile_label(&s, TILE_GAMES), "Michezo") == 0);
+    CHECK(strcmp(shell_tab_label(LANG_SW, TAB_APPS), "Programu") == 0);
     CHECK(strcmp(shell_screen_title(&s), "TV ya Familia") == 0);
+}
+
+/* ---- Live TV -------------------------------------------------------- */
+
+static void test_live_zapping_tunes_once(void)
+{
+    live l;
+    live_action a;
+    int i, tunes = 0;
+    live_init(&l, 10, 0, 50);
+    CHECK(l.current == 0 && l.banner_ms == LIVE_BANNER_MS);
+    for (i = 0; i < 3; i++) { /* Up, Up, Up quickly */
+        CHECK(live_key(&l, FT_UP, 0).act == LIVE_ACT_NONE);
+        a = live_tick(&l, 200);
+        tunes += a.act == LIVE_ACT_TUNE;
+    }
+    CHECK(tunes == 0 && l.shown == 3 && l.current == 0);
+    a = live_tick(&l, LIVE_TUNE_DELAY_MS);
+    CHECK(a.act == LIVE_ACT_TUNE && a.arg == 3 && l.current == 3);
+    CHECK(live_tick(&l, 1000).act == LIVE_ACT_NONE); /* only once */
+    live_key(&l, FT_DOWN, 0);
+    live_key(&l, FT_DOWN, 0);
+    live_key(&l, FT_DOWN, 0);
+    live_key(&l, FT_DOWN, 0);
+    CHECK(l.shown == 9); /* wraps below the first channel */
+    live_key(&l, FT_UP, 0);
+    CHECK(l.shown == 0);
+    live_tick(&l, LIVE_BANNER_MS);
+    CHECK(l.banner_ms == 0 && l.current == 0);
+}
+
+static void test_live_volume_panel_and_errors(void)
+{
+    live l;
+    live_action a;
+    int i;
+    live_init(&l, 4, 1, 98);
+    a = live_key(&l, FT_RIGHT, 0);
+    CHECK(a.act == LIVE_ACT_VOLUME && a.arg == 100 && l.volume_ms > 0);
+    for (i = 0; i < 30; i++)
+        a = live_key(&l, FT_LEFT, 0);
+    CHECK(a.arg == 0 && l.volume == 0);
+
+    CHECK(live_key(&l, FT_OK, 0).act == LIVE_ACT_NONE && l.panel_open && l.panel_item == 1);
+    live_key(&l, FT_DOWN, 0);
+    live_key(&l, FT_DOWN, 0);
+    live_key(&l, FT_DOWN, 0);
+    CHECK(l.panel_item == 3); /* the list stops at the end */
+    a = live_key(&l, FT_OK, 0);
+    CHECK(a.act == LIVE_ACT_TUNE && a.arg == 3 && !l.panel_open && l.current == 3);
+    live_key(&l, FT_OK, 0);
+    CHECK(live_key(&l, FT_BACK, 0).act == LIVE_ACT_NONE && !l.panel_open); /* Back closes the list first */
+    live_key(&l, FT_OK, 0);
+    CHECK(live_key(&l, FT_OK, 0).act == LIVE_ACT_NONE); /* same channel: nothing restarts */
+
+    a = live_key(&l, FT_OK, 1); /* on the error card OK tries again */
+    CHECK(a.act == LIVE_ACT_TUNE && a.arg == 3 && !l.panel_open);
+    CHECK(live_key(&l, FT_BACK, 1).act == LIVE_ACT_EXIT);
+
+    live_init(&l, 0, 0, 50); /* no channels: Back still leaves */
+    CHECK(live_key(&l, FT_UP, 0).act == LIVE_ACT_NONE && live_key(&l, FT_BACK, 0).act == LIVE_ACT_EXIT);
 }
 
 int main(void)
@@ -522,12 +667,14 @@ int main(void)
     test_save_roundtrip_and_recovery();
     test_save_many_writes_and_repeat_quarantine();
     test_save_rejects_wrong_schema_truncation_and_size();
-    test_shell_hides_untested_apps();
-    test_shell_dad_reaches_favourite_in_two_choices();
-    test_shell_unreceived_channels_not_shortcuts();
+    test_home_rows_per_tab();
+    test_shell_dad_reaches_channel_in_two_presses();
     test_shell_child_profile_limits();
-    test_shell_every_tile_reachable();
+    test_shell_every_card_reachable();
+    test_shell_back_tabs_and_columns();
     test_shell_kiswahili_labels();
+    test_live_zapping_tunes_once();
+    test_live_volume_panel_and_errors();
     run_service_tests();
     run_channel_tests();
     run_player_tests();

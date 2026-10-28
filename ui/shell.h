@@ -1,35 +1,32 @@
 #ifndef FT_SHELL_H
 #define FT_SHELL_H
 
-/* Family home screen (plan p.14, Prompt 4): Live TV, YouTube, Football,
- * Games, Netflix, More. Remote-only: arrows, OK, Back. Pure state machine;
- * rendering, PIN checks and platform calls live elsewhere. */
+/* Family home screen in a TCL / Google TV-style layout: tabs along the top
+ * (For you, Live TV, Apps) over rows of cards, plus the Settings list,
+ * Parent settings and the PIN pad. Remote-only: arrows, OK, Back. Pure
+ * state machine; rendering, PIN checks and playback live elsewhere. */
 
 #include <stdint.h>
 
+#include "channels.h"
 #include "common.h"
 #include "i18n.h"
 
-typedef enum {
-    TILE_LIVE_TV, TILE_YOUTUBE, TILE_FOOTBALL, TILE_GAMES, TILE_NETFLIX, TILE_MORE, TILE_COUNT
-} shell_tile;
+typedef enum { TAB_FOR_YOU, TAB_LIVE, TAB_APPS, TAB_COUNT } shell_tab;
+/* Top bar focus positions: the tabs, then these two. */
+enum { TOP_GEAR = TAB_COUNT, TOP_PROFILE, TOP_COUNT };
 
-typedef enum { SCR_HOME, SCR_FOOTBALL, SCR_GAMES, SCR_MORE, SCR_SETTINGS, SCR_PIN } shell_screen;
+typedef enum { SCR_HOME, SCR_MORE, SCR_SETTINGS, SCR_PIN } shell_screen;
 typedef enum { GAME_RACER, GAME_PENALTY, GAME_GARDEN, GAME_COUNT } game_id;
 typedef enum { PROFILE_PARENT, PROFILE_CHILD } profile_role;
 typedef enum { PIN_FOR_PARENT, PIN_FOR_SETTINGS, PIN_NEW_FIRST, PIN_NEW_CONFIRM } pin_purpose;
 
 typedef enum {
     ACT_NONE,
-    ACT_OPEN_BROADCAST,
-    ACT_TUNE_FAVOURITE,
-    ACT_OPEN_CHANNEL_LIST,
-    ACT_OPEN_YOUTUBE,
-    ACT_OPEN_NETFLIX,
+    ACT_PLAY_CHANNEL, /* arg: index into cfg.channels */
     ACT_LAUNCH_GAME,
-    ACT_WEB_SEARCH,
     ACT_SWITCH_PROFILE,
-    ACT_SHOW_SUPPORT,
+    ACT_ABOUT,
     ACT_OPEN_PARENT_SETTINGS,
     ACT_PIN_SUBMIT,
     ACT_PIN_CANCEL,
@@ -48,43 +45,53 @@ typedef struct {
     int arg;
 } shell_action;
 
-#define SHELL_MAX_FAVS 8
 #define SHELL_MAX_ITEMS 12
 #define SHELL_LABEL_MAX 80
-#define SHELL_COLS 3
 #define SHELL_PIN_DIGITS 4
+#define SHELL_ROW_MAX CH_MAX
+#define SHELL_MAX_ROWS (CH_MAX + 2)
 
-/* received: 1 = confirmed in the household baseline, 0 = not received,
- * -1 = not yet checked. Only confirmed services become shortcuts. */
-typedef struct {
-    char name[24];
-    int received;
-} shell_fav;
+/* Hero: one wide banner. Cards: a row that scrolls sideways. Guide: one
+ * channel per row, like a TV channel guide. */
+typedef enum { ROW_HERO, ROW_CARDS, ROW_GUIDE } row_style;
+typedef enum { CARD_CHANNEL, CARD_GAME, CARD_SETTINGS, CARD_PROFILE, CARD_ABOUT, CARD_NO_CHANNELS } card_kind;
 
 typedef struct {
-    int youtube_supported; /* set only after an exact-device playback test */
-    int netflix_supported;
+    card_kind kind;
+    int arg; /* channel index or game_id */
+} shell_card;
+
+typedef struct {
+    row_style style;
+    ft_str title; /* STR_COUNT: no title */
+    int n;
+    shell_card cards[SHELL_ROW_MAX];
+} shell_row;
+
+typedef struct {
     profile_role profile;
     ft_lang lang;
     unsigned child_games;      /* bit per game_id */
     uint32_t child_limit_s;    /* 0 = no limit */
-    uint32_t play_remaining_s; /* for the child's Games screen */
+    uint32_t play_remaining_s; /* for the child's Games row */
     int quality;               /* video_quality (settings.h) */
-    shell_fav favs[SHELL_MAX_FAVS];
-    int nfav;
+    channel_list channels;
+    int last_channel;          /* index shown in the For you banner */
 } shell_config;
 
 typedef struct {
     shell_config cfg;
     shell_screen screen;
-    int focus;
-    int item;
-    int tiles[TILE_COUNT];
-    int ntiles;
+    shell_tab tab;
+    int row;                 /* focused home row; -1 = top bar */
+    int top;                 /* focused top bar item while row == -1 */
+    int col[SHELL_MAX_ROWS]; /* each row remembers its column (per tab) */
+    int item;                /* focused row of the Settings lists */
     char pin_digits[SHELL_PIN_DIGITS + 1];
     int pin_pos;
     pin_purpose pin_for;
     shell_screen pin_return;
+    shell_screen settings_return;
     char status[160];
 } shell;
 
@@ -96,8 +103,10 @@ void shell_open_settings(shell *s);
 shell_action shell_key(shell *s, ft_key k);
 int shell_list(const shell *s, char labels[][SHELL_LABEL_MAX], int max);
 const char *shell_screen_title(const shell *s);
-const char *shell_tile_label(const shell *s, int tile);
-const char *shell_tile_hint(const shell *s, int tile);
 const char *shell_game_name(ft_lang lang, int game);
+const char *shell_tab_label(ft_lang lang, int tab);
+/* The rows of the current tab, top to bottom. */
+int shell_home_rows(const shell *s, shell_row *out, int max);
+const char *shell_card_label(const shell *s, shell_card c);
 
 #endif

@@ -6,19 +6,23 @@ static const struct {
     ft_color top, bottom;
 } GRADIENTS[ART_COUNT] = {
     {FT_RGB(0x5B95FF), FT_RGB(0x2440B0)}, /* Live TV */
-    {FT_RGB(0x3C3D44), FT_RGB(0x1D1E23)}, /* YouTube: neutral, name only */
     {FT_RGB(0x36D27D), FT_RGB(0x0D7641)}, /* Football */
     {FT_RGB(0xFF9F43), FT_RGB(0xE0326F)}, /* Games */
-    {FT_RGB(0x3C3D44), FT_RGB(0x1D1E23)}, /* Netflix: neutral, name only */
     {FT_RGB(0x8590A3), FT_RGB(0x394152)}, /* More */
     {FT_RGB(0x95A1B6), FT_RGB(0x414B5F)}, /* Settings */
     {FT_RGB(0x34D6C3), FT_RGB(0x12708A)}, /* Racer */
     {FT_RGB(0x4CCB74), FT_RGB(0x17663A)}, /* Penalty */
     {FT_RGB(0x96D7FF), FT_RGB(0x3A86D4)}, /* Garden */
     {FT_RGB(0xB792FF), FT_RGB(0x5A3BC2)}, /* Profile */
-    {FT_RGB(0x7482FF), FT_RGB(0x3443C2)}, /* Search */
     {FT_RGB(0x60A0FF), FT_RGB(0x2E4FC6)}, /* Channels */
+    {FT_RGB(0x8590A3), FT_RGB(0x394152)}, /* Gear */
+    {FT_RGB(0x4FC3F7), FT_RGB(0x1565C0)}, /* Info */
+    {FT_RGB(0x8590A3), FT_RGB(0x394152)}, /* Volume */
 };
+
+/* cos and sin of k * 22.5 degrees, times 1000 (gear teeth). */
+static const int COS16[16] = {1000, 924, 707, 383, 0, -383, -707, -924, -1000, -924, -707, -383, 0, 383, 707, 924};
+static const int SIN16[16] = {0, 383, 707, 924, 1000, 924, 707, 383, 0, -383, -707, -924, -1000, -924, -707, -383};
 
 static const int PENT_COS[5] = {0, 951, 588, -588, -951};
 static const int PENT_SIN[5] = {-1000, -309, 809, 809, -309};
@@ -116,10 +120,44 @@ static void person(ft_canvas *c, int cx, int cy, int s, ft_color ink)
     canvas_round_gradient(c, shoulders, P(s, 30), CORNERS_TOP, ink, ink);
 }
 
-static void magnifier(ft_canvas *c, int cx, int cy, int s, ft_color ink)
+/* Eight teeth around a ring. */
+static void gear(ft_canvas *c, int cx, int cy, int s, ft_color ink)
 {
-    canvas_ring(c, cx - P(s, 14), cy - P(s, 14), P(s, 44), P(s, 14), ink);
-    canvas_line(c, cx + P(s, 20), cy + P(s, 20), cx + P(s, 62), cy + P(s, 62), P(s, 16), ink);
+    int k;
+    for (k = 0; k < 16; k += 2) {
+        int a = (k + 15) % 16, b = (k + 1) % 16, xy[8];
+        xy[0] = cx + COS16[a] * P(s, 50) / 1000;
+        xy[1] = cy + SIN16[a] * P(s, 50) / 1000;
+        xy[2] = cx + (COS16[k] * 2 + COS16[a]) * P(s, 76) / 3000;
+        xy[3] = cy + (SIN16[k] * 2 + SIN16[a]) * P(s, 76) / 3000;
+        xy[4] = cx + (COS16[k] * 2 + COS16[b]) * P(s, 76) / 3000;
+        xy[5] = cy + (SIN16[k] * 2 + SIN16[b]) * P(s, 76) / 3000;
+        xy[6] = cx + COS16[b] * P(s, 50) / 1000;
+        xy[7] = cy + SIN16[b] * P(s, 50) / 1000;
+        canvas_polygon(c, xy, 4, ink);
+    }
+    canvas_ring(c, cx, cy, P(s, 56), P(s, 30), ink);
+}
+
+/* Lower-case i in a ring. */
+static void info(ft_canvas *c, int cx, int cy, int s, ft_color ink)
+{
+    ft_rect stem = {cx - P(s, 9), cy - P(s, 8), P(s, 18), P(s, 46)};
+    canvas_ring(c, cx, cy, P(s, 72), P(s, 12), ink);
+    canvas_circle(c, cx, cy - P(s, 30), P(s, 11), ink);
+    canvas_round(c, stem, P(s, 6), ink);
+}
+
+/* Speaker with two sound bars. */
+static void speaker(ft_canvas *c, int cx, int cy, int s, ft_color ink)
+{
+    int cone[8] = {cx - P(s, 30), cy - P(s, 22), cx + P(s, 6), cy - P(s, 56),
+                   cx + P(s, 6), cy + P(s, 56), cx - P(s, 30), cy + P(s, 22)};
+    ft_rect body = {cx - P(s, 62), cy - P(s, 22), P(s, 36), P(s, 44)};
+    canvas_round(c, body, 2, ink);
+    canvas_polygon(c, cone, 4, ink);
+    canvas_line(c, cx + P(s, 30), cy - P(s, 20), cx + P(s, 30), cy + P(s, 20), P(s, 12), ink);
+    canvas_line(c, cx + P(s, 56), cy - P(s, 40), cx + P(s, 56), cy + P(s, 40), P(s, 12), ink);
 }
 
 static void channels(ft_canvas *c, int cx, int cy, int s, ft_color ink)
@@ -191,13 +229,13 @@ void art_glyph(ft_canvas *c, art_id id, int cx, int cy, int s, ft_color ink)
         break;
     case ART_SETTINGS: padlock(c, cx, cy, s, ink); break;
     case ART_PROFILE: person(c, cx, cy, s, ink); break;
-    case ART_SEARCH: magnifier(c, cx, cy, s, ink); break;
+    case ART_GEAR: gear(c, cx, cy, s, ink); break;
+    case ART_INFO: info(c, cx, cy, s, ink); break;
+    case ART_VOLUME: speaker(c, cx, cy, s, ink); break;
     case ART_CHANNELS: channels(c, cx, cy, s, ink); break;
     case ART_RACER: racer_art(c, cx, cy, s); break;
     case ART_PENALTY: goal_art(c, cx, cy, s); break;
     case ART_GARDEN: garden_art(c, cx, cy, s); break;
-    case ART_YOUTUBE:
-    case ART_NETFLIX:
     case ART_COUNT:
         break;
     }

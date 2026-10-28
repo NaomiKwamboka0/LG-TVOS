@@ -1,10 +1,9 @@
-/* Desktop-window frontend for the host simulator: shows the real 1280x720
- * pixel views (ui/view.c) using SDL2. Development computer only; SDL is not
- * part of the TV build. Keys: arrows, Enter = OK, Backspace/Esc = Back,
- * q = quit. */
+/* Desktop window: shows the 1280x720 pixel views (ui/view.c) using SDL2.
+ * Keys: arrows, Enter = OK, Backspace/Esc = Back, q = quit. */
 #define SDL_MAIN_HANDLED
 #include <SDL.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "frontend.h"
 #include "view.h"
@@ -13,7 +12,10 @@ static SDL_Window *window;
 static SDL_Renderer *renderer;
 static SDL_Texture *texture;
 static uint32_t pixels[VIEW_W * VIEW_H];
+static uint32_t video[VIEW_W * VIEW_H]; /* newest picture, kept between frames */
 static ft_canvas canvas;
+static Uint32 wake_event = (Uint32)-1;
+static SDL_atomic_t wake_pending;
 
 static void present(void)
 {
@@ -45,6 +47,7 @@ static int window_open(int scripted)
         return -1;
     }
     SDL_RenderSetLogicalSize(renderer, VIEW_W, VIEW_H);
+    wake_event = SDL_RegisterEvents(1);
     canvas_init(&canvas, pixels, VIEW_W, VIEW_H, VIEW_W);
     canvas_clear(&canvas, COL_BG);
     present();
@@ -128,6 +131,10 @@ static ft_key window_poll(int ms, int *quit)
             }
             if (e.type == SDL_WINDOWEVENT)
                 present(); /* redraw after expose/resize */
+            if (e.type == wake_event) {
+                SDL_AtomicSet(&wake_pending, 0);
+                return FT_NONE;
+            }
             if (e.type == SDL_KEYDOWN) {
                 ft_key k = map_key(&e.key, quit);
                 if (k != FT_NONE || *quit)
@@ -165,6 +172,32 @@ static void window_garden(const garden *g, ft_lang lang, const char *status)
     present();
 }
 
+static void window_live(const live *l, player *p, const shell *s)
+{
+    char clock[8];
+    int has_picture = player_render(p, video, VIEW_W, VIEW_H, VIEW_W);
+    if (has_picture)
+        memcpy(pixels, video, sizeof pixels);
+    sim_clock_text(clock, sizeof clock);
+    view_live(&canvas, l, player_get(p), s, clock, has_picture);
+    present();
+}
+
+/* Called by the player from its own threads: one pending wake-up is
+ * enough, so a busy stream cannot flood the event queue. */
+static void window_wake(void *ctx)
+{
+    (void)ctx;
+    if (wake_event != (Uint32)-1 && SDL_AtomicCAS(&wake_pending, 0, 1)) {
+        SDL_Event e;
+        SDL_memset(&e, 0, sizeof e);
+        e.type = wake_event;
+        if (SDL_PushEvent(&e) != 1)
+            SDL_AtomicSet(&wake_pending, 0);
+    }
+}
+
 const sim_frontend frontend_window = {
-    "window", window_open, window_close, window_poll, window_shell, window_racer, window_penalty, window_garden
+    "window", window_open, window_close, window_poll, window_shell, window_racer, window_penalty, window_garden,
+    window_live, window_wake
 };

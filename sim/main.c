@@ -1,5 +1,4 @@
-/* Host simulator for the family TV experience. Runs on the development
- * computer only; it is not device evidence (plan p.25). */
+/* Family TV: home screen, live channels and games for a laptop. */
 #define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
 #include <stdlib.h>
@@ -7,10 +6,14 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "channels.h"
 #include "garden.h"
+#include "live.h"
 #include "penalty.h"
 #include "platform.h"
+#include "player.h"
 #include "playtime.h"
+#include "prefs.h"
 #include "racer.h"
 #include "frontend.h"
 #include "save.h"
@@ -21,6 +24,8 @@
 #define FRAME_MS (1000 / FT_TICK_HZ)
 
 static const char *data_dir = DEFAULT_DATA_DIR;
+static player *pl;
+static player_prefs prefs;
 static int quit_req;
 static int script_mode;
 static char *script_tokens[1024];
@@ -62,7 +67,7 @@ static const sim_frontend *fe = &frontend_text;
 #endif
 const char *sim_dump_path;
 
-/* frame_ms > 0: game frame pacing; 0: block until a key (menus). */
+/* frame_ms > 0: wait at most this long; 0: block until a key. */
 static ft_key next_key(int frame_ms)
 {
     if (script_mode)
@@ -70,10 +75,10 @@ static ft_key next_key(int frame_ms)
     return fe->poll(frame_ms, &quit_req);
 }
 
-/* ---- play-time meter ------------------------------------------------ */
+/* ---- clocks ----------------------------------------------------------- */
 
 /* Scripted runs use a simulated clock (one frame per loop) so they are repeatable. */
-static uint64_t meter_now(void)
+static uint64_t loop_now(void)
 {
     static uint64_t fake;
     if (script_mode)
@@ -83,21 +88,20 @@ static uint64_t meter_now(void)
 
 static void meter_start(play_meter *m)
 {
-    play_meter_start(m, meter_now());
+    play_meter_start(m, loop_now());
 }
 
 /* Counts time only while the game is actively played (not paused).
  * Returns 0 once a child's allowance has run out. */
 static int meter_step(play_meter *m, int active, session *ss, shell *s)
 {
-    uint32_t secs = play_meter_step(m, meter_now(), active);
+    uint32_t secs = play_meter_step(m, loop_now(), active);
     return secs ? session_play_account(ss, s, secs) : 1;
 }
 
 static void time_up(session *ss, shell *s)
 {
-    snprintf(s->status, sizeof s->status, "[%s] %s", plat_name(),
-             tr((ft_lang)ss->settings.lang, STR_TIME_UP));
+    snprintf(s->status, sizeof s->status, "%s", tr((ft_lang)ss->settings.lang, STR_TIME_UP));
 }
 
 /* ---- saves ------------------------------------------------------------ */
@@ -279,26 +283,110 @@ static void run_garden(session *ss, shell *s)
     session_play_end(ss, s);
 }
 
+/* ---- live TV ----------------------------------------------------------- */
+
+static int quality_height(int quality)
+{
+    return quality == QUALITY_360 ? 360 : quality == QUALITY_720 ? 720 : 480;
+}
+
+static void save_prefs(void)
+{
+    char path[512];
+    prefs_save(&prefs, data_path(path, sizeof path, "player.sav"));
+}
+
+static void tune(shell *s, int index)
+{
+    const channel *ch = &s->cfg.channels.ch[index];
+    player_open(pl, ch->url);
+    s->cfg.last_channel = index;
+    prefs.last_channel = ch->number;
+}
+
+static int live_apply(shell *s, live_action a)
+{
+    if (a.act == LIVE_ACT_TUNE)
+        tune(s, a.arg);
+    else if (a.act == LIVE_ACT_VOLUME)
+        player_set_volume(pl, a.arg);
+    return a.act == LIVE_ACT_EXIT;
+}
+
+/* Watches until Back. The stream stops on the way out, so no data is
+ * spent while the family is on the home screen. */
+static void run_live(session *ss, shell *s, int index)
+{
+    live l;
+    uint64_t last = loop_now();
+    int done = 0;
+
+    live_init(&l, s->cfg.channels.n, index, prefs.volume);
+    player_set_max_height(pl, quality_height(ss->settings.quality));
+    player_set_volume(pl, l.volume);
+    tune(s, index);
+    save_prefs();
+    while (!quit_req && !done) {
+        ft_key k = next_key(FRAME_MS);
+        uint64_t now = loop_now();
+        done = live_apply(s, live_tick(&l, (int)(now - last)));
+        last = now;
+        if (k != FT_NONE)
+            done = live_apply(s, live_key(&l, k, player_get(pl)->state == PLAYER_ERROR)) || done;
+        player_pump(pl, now);
+        fe->live(&l, pl, s);
+    }
+    player_stop(pl);
+    prefs.volume = l.volume;
+    save_prefs();
+}
+
+static player *make_player(int want_stub, const char *ytdl_path)
+{
+    player_config pc;
+    player *p = NULL;
+    char log_path[512];
+    memset(&pc, 0, sizeof pc);
+    pc.ytdl_path = ytdl_path;
+    pc.log_path = data_path(log_path, sizeof log_path, "familytv.log");
+    pc.max_height = 480;
+    pc.volume = prefs.volume;
+    pc.wakeup = fe->wake;
+    if (want_stub)
+        return player_create_stub(&pc);
+#ifdef FT_WINDOW
+    p = player_create_mpv(&pc);
+#endif
+    return p ? p : player_create_unavailable(&pc);
+}
+
 /* ---- main --------------------------------------------------------------- */
 
-static void base_config(shell_config *c, int demo_received)
+static void load_config(shell_config *c, char *warn, size_t n)
 {
-    static const char *const names[] = {"Citizen TV", "KTN", "SportyTV"};
-    int i;
+    char data_ch[512];
+    const char *paths[2];
+    int last;
     memset(c, 0, sizeof *c);
-    for (i = 0; i < 3; i++) {
-        snprintf(c->favs[i].name, sizeof c->favs[i].name, "%s%s", names[i], demo_received ? " (demo)" : "");
-        /* Reception is unknown until Work packet A; --demo-received fakes it, labelled. */
-        c->favs[i].received = demo_received ? 1 : -1;
-    }
-    c->nfav = 3;
+    paths[0] = data_path(data_ch, sizeof data_ch, "channels.txt");
+    paths[1] = "assets/channels.txt"; /* running from the source folder */
+    channels_load(&c->channels, paths, 2, warn, n);
+    last = channels_find_number(&c->channels, prefs.last_channel);
+    c->last_channel = last >= 0 ? last : 0;
 }
 
 static void usage(void)
 {
     fprintf(stderr,
-            "usage: family-tv-sim [--demo-received] [--data DIR] [--keys K,K,...] [--dump-frame FILE.ppm]\n"
-            "  keys: L R U D OK BACK W (wait 1s) Wn (wait n ticks)\n");
+            "usage: familytv [--data DIR] [--player stub|mpv] [--ytdl PATH]\n"
+            "                [--keys K,K,...] [--dump-frame FILE.ppm]\n"
+            "  keys: L R U D OK BACK W (wait 1s) Wn (wait n ticks); scripted runs use the stub player\n");
+}
+
+/* Milliseconds until the clock on screen next changes. */
+static int ms_to_next_minute(void)
+{
+    return (int)(60 - plat_wall_utc() % 60) * 1000 + 50;
 }
 
 int main(int argc, char **argv)
@@ -306,16 +394,20 @@ int main(int argc, char **argv)
     shell_config cfg;
     static shell s;
     static session ss;
-    int demo = 0, i, r_load;
+    int i, r_load, want_stub = 0;
+    const char *ytdl_path = NULL;
+    char warn[160] = "";
     static char keybuf[4096];
 
     for (i = 1; i < argc; i++) {
-        if (!strcmp(argv[i], "--demo-received")) {
-            demo = 1;
-        } else if (!strcmp(argv[i], "--dump-frame") && i + 1 < argc) {
+        if (!strcmp(argv[i], "--dump-frame") && i + 1 < argc) {
             sim_dump_path = argv[++i];
         } else if (!strcmp(argv[i], "--data") && i + 1 < argc) {
             data_dir = argv[++i];
+        } else if (!strcmp(argv[i], "--player") && i + 1 < argc) {
+            want_stub = !strcmp(argv[++i], "stub");
+        } else if (!strcmp(argv[i], "--ytdl") && i + 1 < argc) {
+            ytdl_path = argv[++i];
         } else if (!strcmp(argv[i], "--keys") && i + 1 < argc) {
             char *tok;
             snprintf(keybuf, sizeof keybuf, "%s", argv[++i]);
@@ -330,31 +422,46 @@ int main(int argc, char **argv)
 
     plat_mkdir("out");
     plat_mkdir(data_dir);
-    base_config(&cfg, demo);
+    {
+        char path[512];
+        prefs_load(&prefs, data_path(path, sizeof path, "player.sav"));
+    }
+    load_config(&cfg, warn, sizeof warn);
     shell_init(&s, &cfg);
     {
         char settings_path[512];
         r_load = session_init(&ss, &s, data_path(settings_path, sizeof settings_path, "settings.sav"));
     }
     save_note(s.status, sizeof s.status, r_load, "Settings");
+    if (warn[0] && !s.status[0])
+        snprintf(s.status, sizeof s.status, "%s", warn);
     if (fe->open(script_mode) != 0)
         return 1;
+    pl = make_player(want_stub || script_mode, ytdl_path);
+    if (!pl) {
+        fe->close();
+        fprintf(stderr, "out of memory\n");
+        return 1;
+    }
 
     while (!quit_req) {
         ft_key k;
-        int game;
+        int r;
         fe->shell(&s);
-        k = next_key(0);
+        k = next_key(ms_to_next_minute());
         if (k == FT_NONE)
-            continue;
-        game = session_dispatch(&ss, &s, shell_key(&s, k));
-        if (game == GAME_RACER)
+            continue; /* redraw: the clock moved on */
+        r = session_dispatch(&ss, &s, shell_key(&s, k));
+        if (r == GAME_RACER)
             run_racer(&ss, &s);
-        else if (game == GAME_PENALTY)
+        else if (r == GAME_PENALTY)
             run_penalty(&ss, &s);
-        else if (game == GAME_GARDEN)
+        else if (r == GAME_GARDEN)
             run_garden(&ss, &s);
+        else if (r == SESSION_WATCH)
+            run_live(&ss, &s, ss.watch_channel);
     }
+    player_destroy(pl);
     fe->close();
     return 0;
 }

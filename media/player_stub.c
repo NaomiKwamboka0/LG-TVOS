@@ -14,6 +14,7 @@ typedef struct {
     int opening; /* waiting for the first pump after open */
     player_error fail_with;
     uint32_t seed; /* differs per address, so channels look different */
+    int unavailable;
     uint32_t frame;
 } stub_player;
 
@@ -42,6 +43,10 @@ static void stub_open(player *p, const char *url)
         for (e = PERR_OFFLINE; e < PERR_COUNT; e++)
             if (strcmp(url + strlen(STUB_PREFIX), player_error_name((player_error)e)) == 0)
                 s->fail_with = (player_error)e;
+    if (s->unavailable) {
+        player_fail(p, PERR_NO_ENGINE, "built without libmpv, or libmpv failed to start");
+        s->opening = 0;
+    }
     wake(s);
 }
 
@@ -116,6 +121,14 @@ player *player_create_stub(const player_config *cfg)
     s->base.max_height = cfg->max_height;
     s->base.st.volume = cfg->volume;
     return &s->base;
+}
+
+player *player_create_unavailable(const player_config *cfg)
+{
+    player *p = player_create_stub(cfg);
+    if (p)
+        ((stub_player *)p)->unavailable = 1;
+    return p;
 }
 
 #ifndef FT_HAVE_MPV
