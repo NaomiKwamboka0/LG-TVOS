@@ -1,0 +1,41 @@
+# Builds Family TV and runs its tests on macOS and on Windows (native MSYS2),
+# on every push and pull request. Streams are not played here: the tests
+# use the stub player.
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install SDL2 and mpv
+        run: brew install sdl2 mpv pkgconf
+      - name: Unit tests (sanitizers), scripted walks, headless window
+        run: make test smoke window-smoke
+
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            make
+            python
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-SDL2
+            mingw-w64-ucrt-x86_64-mpv
+      - name: Unit tests on Windows (saves, randomness, glows, everything)
+        run: make test
+      - name: Build the app
+        run: make window
