@@ -41,5 +41,8 @@ void live_init(live *l, int nch, int channel, int volume);
 /* error_card: the player is showing an error, so OK means try again. */
 live_action live_key(live *l, ft_key k, int error_card);
 live_action live_tick(live *l, int elapsed_ms);
+/* The picture has just appeared: show the banner over it. A YouTube
+ * channel can take 10-15 s to start, longer than the banner lasts. */
+void live_started(live *l);
 
 #endif

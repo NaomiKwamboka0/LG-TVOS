@@ -15,7 +15,7 @@ typedef struct {
     player_error fail_with;
     uint32_t seed; /* differs per address, so channels look different */
     int unavailable;
-    uint32_t frame;
+    uint32_t frame, drawn; /* drawn: frame + 1 last put in px, 0 = none */
 } stub_player;
 
 static void wake(stub_player *s)
@@ -34,6 +34,7 @@ static void stub_open(player *p, const char *url)
     stub_player *s = (stub_player *)p;
     int e;
     p->st.state = PLAYER_LOADING;
+    s->drawn = 0;
     s->opening = 1;
     s->fail_with = PERR_NONE;
     s->seed = 2166136261u;
@@ -90,8 +91,12 @@ static int stub_render(player *p, uint32_t *px, int w, int h, int stride)
     };
     stub_player *s = (stub_player *)p;
     int x, y, sweep;
-    if (p->st.state != PLAYER_PLAYING && p->st.state != PLAYER_BUFFERING)
+    if (p->st.state != PLAYER_PLAYING && p->st.state != PLAYER_BUFFERING) {
+        s->drawn = 0;
         return 0;
+    }
+    if (s->drawn == s->frame + 1)
+        return PLAYER_SAME_PICTURE;
     sweep = (int)(s->frame * 8u % (uint32_t)w);
     for (y = 0; y < h; y++) {
         uint32_t *row = px + (long)y * stride;
@@ -104,7 +109,8 @@ static int stub_render(player *p, uint32_t *px, int w, int h, int stride)
             row[x] = c;
         }
     }
-    return 1;
+    s->drawn = s->frame + 1;
+    return PLAYER_NEW_PICTURE;
 }
 
 static const player_ops STUB_OPS = {

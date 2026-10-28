@@ -31,6 +31,15 @@ SDL_LIBS := $(shell sdl2-config --libs)
 WINDOW_CHECK := window-smoke
 endif
 
+# Live channels need libmpv (brew install mpv pkgconf). Without it the
+# window still builds and says live TV is not included.
+MPV_OK := $(shell pkg-config --exists mpv 2>/dev/null && echo yes)
+ifeq ($(MPV_OK),yes)
+MPV_CFLAGS := -DFT_HAVE_MPV -isystem $(shell pkg-config --variable=includedir mpv)
+MPV_LIBS := $(shell pkg-config --libs mpv)
+MPV_SRC := media/player_mpv.c
+endif
+
 .PHONY: all term run-term window run window-smoke smoke screens bench fonts check-fonts test clean
 
 all: check-fonts test smoke $(WINDOW_CHECK)
@@ -46,10 +55,11 @@ run-term: term
 
 window: $(OUT)/host/familytv
 
-$(OUT)/host/familytv: $(SIM_SRC) sim/frontend_window.c $(CORE_HDR)
+$(OUT)/host/familytv: $(SIM_SRC) sim/frontend_window.c $(MPV_SRC) $(CORE_HDR)
 	@if [ -z "$(SDL_CONFIG)" ]; then echo "SDL2 not found: brew install sdl2"; exit 1; fi
 	mkdir -p $(OUT)/host
-	$(CC) $(CFLAGS) $(WARN) $(INC) $(SDL_CFLAGS) -DFT_WINDOW -o $@ $(SIM_SRC) sim/frontend_window.c $(SDL_LIBS)
+	$(CC) $(CFLAGS) $(WARN) $(INC) $(SDL_CFLAGS) $(MPV_CFLAGS) -DFT_WINDOW -o $@ \
+	  $(SIM_SRC) sim/frontend_window.c $(MPV_SRC) $(SDL_LIBS) $(MPV_LIBS)
 
 # Family TV in a window: arrows, Enter = OK, Backspace/Esc = Back, q = quit.
 run: window

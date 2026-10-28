@@ -13,9 +13,13 @@ static SDL_Window *window;
 static SDL_Renderer *renderer;
 static SDL_Texture *texture;
 static uint32_t pixels[VIEW_W * VIEW_H];
-static uint32_t video[VIEW_W * VIEW_H]; /* newest picture, kept between frames */
+/* Newest picture, kept between frames. The player's software scaler wants
+ * 64-byte alignment, which C99 cannot ask of a static array. */
+static uint8_t video_store[VIEW_W * VIEW_H * 4 + 64];
+static uint32_t *video;
 static ft_canvas canvas;
 static Uint32 wake_event = (Uint32)-1;
+static int live_on_screen; /* pixels hold the live view; other screens clear it */
 static SDL_atomic_t wake_pending;
 
 static void present(void)
@@ -84,6 +88,7 @@ static int window_open(int scripted, int fullscreen)
     }
     SDL_RenderSetLogicalSize(renderer, VIEW_W, VIEW_H);
     wake_event = SDL_RegisterEvents(1);
+    video = (uint32_t *)(void *)(video_store + (64 - (uintptr_t)video_store % 64) % 64);
     if (fullscreen)
         set_fullscreen(1);
     canvas_init(&canvas, pixels, VIEW_W, VIEW_H, VIEW_W);
@@ -191,6 +196,7 @@ static ft_key window_poll(int ms, int *quit)
 
 static void window_shell(const shell *s)
 {
+    live_on_screen = 0;
     char clock[8];
     SDL_EnableScreenSaver();
     sim_clock_text(clock, sizeof clock);
@@ -200,32 +206,81 @@ static void window_shell(const shell *s)
 
 static void window_racer(const racer *r, const uint32_t best[RACER_LEVELS], ft_lang lang, const char *status)
 {
+    live_on_screen = 0;
     view_racer(&canvas, r, best, lang, status);
     present();
 }
 
 static void window_penalty(const penalty *p, ft_lang lang, const char *status)
 {
+    live_on_screen = 0;
     view_penalty(&canvas, p, lang, status);
     present();
 }
 
 static void window_garden(const garden *g, ft_lang lang, const char *status)
 {
+    live_on_screen = 0;
     view_garden(&canvas, g, lang, status);
     present();
 }
 
+/* --stats: painted frames per second and the milliseconds each one spent
+ * in the player's picture, our overlays and the upload, averaged over a
+ * second (the upload of a frame is counted with the next one). */
+static Uint64 stat_t[3];
+static void stats(ft_canvas *c, const player_status *ps)
+{
+    static Uint64 window_start;
+    static int frames;
+    static char line[128] = "measuring...";
+    Uint64 now = SDL_GetPerformanceCounter(), hz = SDL_GetPerformanceFrequency();
+    ft_rect box = {8, 8, 0, 30};
+    double ms = 1000.0 / (double)hz;
+    frames++;
+    if (!window_start)
+        window_start = now;
+    if (now - window_start >= hz) {
+        snprintf(line, sizeof line, "%d fps  picture %.1f  overlay %.1f  upload %.1f ms  %dp", frames,
+                 (double)stat_t[0] * ms / frames, (double)stat_t[1] * ms / frames, (double)stat_t[2] * ms / frames,
+                 ps->video_h);
+        window_start = now;
+        stat_t[0] = stat_t[1] = stat_t[2] = 0;
+        frames = 0;
+    }
+    box.w = text_width(&font_caption, line) + 20;
+    canvas_round(c, box, 8, 0xC0000000u);
+    canvas_text(c, &font_caption, box.x + 10, box.y + 4, line, COL_TEXT);
+}
+
+/* Repaints only for a new picture or a visible overlay change: the loop
+ * wakes far more often than either happens. */
 static void window_live(const live *l, player *p, const shell *s)
 {
+    static uint32_t last_sig;
+    Uint64 t0 = SDL_GetPerformanceCounter(), t1, t2;
     char clock[8];
-    int has_picture = player_render(p, video, VIEW_W, VIEW_H, VIEW_W);
+    int picture = player_render(p, video, VIEW_W, VIEW_H, VIEW_W);
+    uint32_t sig;
     SDL_DisableScreenSaver(); /* nobody touches the keys while watching */
-    if (has_picture)
-        memcpy(pixels, video, sizeof pixels);
     sim_clock_text(clock, sizeof clock);
-    view_live(&canvas, l, player_get(p), s, clock, has_picture);
+    sig = view_live_signature(l, player_get(p), s, clock, picture != 0);
+    if (live_on_screen && picture != PLAYER_NEW_PICTURE && sig == last_sig)
+        return;
+    t1 = SDL_GetPerformanceCounter();
+    if (picture)
+        memcpy(pixels, video, sizeof pixels);
+    view_live(&canvas, l, player_get(p), s, clock, picture != 0);
+    t2 = SDL_GetPerformanceCounter();
+    if (sim_show_stats) {
+        stat_t[0] += t1 - t0;
+        stat_t[1] += t2 - t1;
+        stats(&canvas, player_get(p));
+    }
     present();
+    stat_t[2] += SDL_GetPerformanceCounter() - t2;
+    last_sig = sig;
+    live_on_screen = 1;
 }
 
 /* Called by the player from its own threads: one pending wake-up is

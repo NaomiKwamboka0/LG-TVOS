@@ -857,6 +857,35 @@ static void channel_panel(ft_canvas *c, const live *l, const channel_list *chs, 
     help_lines(c, &font_caption, 40, 628, PANEL_W - 80, tr(L, STR_HELP_PANEL), COL_TEXT_3);
 }
 
+static uint32_t mix(uint32_t h, uint32_t v)
+{
+    return (h ^ v) * 16777619u;
+}
+
+uint32_t view_live_signature(const live *l, const player_status *ps, const shell *s, const char *clock_text,
+                             int has_picture)
+{
+    int zapping = l->tune_wait_ms > 0 || l->shown != l->current;
+    int spinning = !has_picture || zapping || ps->state == PLAYER_BUFFERING;
+    uint32_t h = 2166136261u;
+    const char *p;
+    h = mix(h, (uint32_t)l->shown);
+    h = mix(h, (uint32_t)l->current);
+    h = mix(h, (uint32_t)zapping);
+    h = mix(h, (uint32_t)(l->banner_ms > 0));
+    h = mix(h, (uint32_t)(l->volume_ms > 0 ? l->volume + 1 : 0));
+    h = mix(h, (uint32_t)(l->panel_open ? l->panel_item + 1 : 0));
+    h = mix(h, spinning ? l->anim_ms / 110 + 1 : 0); /* the spinner's step */
+    h = mix(h, (uint32_t)ps->state);
+    h = mix(h, (uint32_t)ps->error);
+    h = mix(h, (uint32_t)ps->video_h);
+    h = mix(h, (uint32_t)s->cfg.lang);
+    h = mix(h, (uint32_t)has_picture);
+    for (p = clock_text ? clock_text : ""; *p; p++)
+        h = mix(h, (unsigned char)*p);
+    return h;
+}
+
 void view_live(ft_canvas *c, const live *l, const player_status *ps, const shell *s, const char *clock_text,
                int has_picture)
 {

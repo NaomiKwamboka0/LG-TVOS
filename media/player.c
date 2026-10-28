@@ -136,8 +136,8 @@ player_error player_classify(const char *t)
     static const char *const offline[] = {
         "failed to resolve", "getaddrinfo", "nodename nor servname", "name or service not known",
         "temporary failure in name resolution", "no address associated", "network is unreachable",
-        "connection refused", "unable to download webpage", "urlopen error", "connection reset",
-        "timed out", "failed to establish a new connection", NULL
+        "connection refused", "urlopen error", "connection reset", "timed out",
+        "failed to establish a new connection", "unable to connect to proxy", "network is down", NULL
     };
     if (!t || !t[0])
         return PERR_PLAYBACK;

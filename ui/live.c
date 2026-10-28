@@ -100,3 +100,9 @@ live_action live_tick(live *l, int elapsed_ms)
     }
     return act(LIVE_ACT_NONE, 0);
 }
+
+void live_started(live *l)
+{
+    if (l->tune_wait_ms == 0)
+        l->banner_ms = LIVE_BANNER_MS;
+}

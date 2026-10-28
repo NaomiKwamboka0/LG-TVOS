@@ -27,6 +27,10 @@ void view_garden(ft_canvas *c, const garden *g, ft_lang lang, const char *status
  * has_picture is set; otherwise the view paints the background itself. */
 void view_live(ft_canvas *c, const live *l, const player_status *ps, const shell *s, const char *clock_text,
                int has_picture);
+/* Changes whenever view_live would draw different overlays for the same
+ * picture, so a caller can skip repainting while nothing moves. */
+uint32_t view_live_signature(const live *l, const player_status *ps, const shell *s, const char *clock_text,
+                             int has_picture);
 
 /* Layout helpers, exposed for tests (resting positions, before focus lift). */
 ft_rect view_top_rect(const shell *s, int item); /* a tab, TOP_GEAR or TOP_PROFILE */

@@ -43,6 +43,8 @@ extern const sim_frontend frontend_window;
 
 /* Optional: the window frontend writes its last frame here (PPM) on close. */
 extern const char *sim_dump_path;
+/* --stats: the window shows frames per second and drawing cost while watching. */
+extern int sim_show_stats;
 
 /* Nairobi wall-clock time as HH:MM (UTC+3, no DST). */
 void sim_clock_text(char *out, size_t n);

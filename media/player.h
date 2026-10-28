@@ -67,7 +67,10 @@ void player_set_max_height(player *p, int height);
 void player_pump(player *p, uint64_t now_ms);
 const player_status *player_get(const player *p);
 /* Draws the newest picture into px (0xAARRGGBB, w x h, stride in pixels).
- * Returns 1 if px now holds a picture, 0 if there is nothing to show. */
+ * Pass the same buffer every time. Returns PLAYER_NEW_PICTURE when px was
+ * just updated, PLAYER_SAME_PICTURE when px still holds the last one, or
+ * 0 when there is nothing to show. */
+enum { PLAYER_SAME_PICTURE = 1, PLAYER_NEW_PICTURE = 2 };
 int player_render(player *p, uint32_t *px, int w, int h, int stride);
 
 /* Reads engine and yt-dlp messages and says what went wrong. */

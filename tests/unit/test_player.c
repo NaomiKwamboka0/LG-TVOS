@@ -41,7 +41,10 @@ static void test_stub_loads_then_plays(void)
     player_pump(p, 11500);
     CHECK(player_get(p)->state == PLAYER_PLAYING && player_get(p)->video_h == 480);
     px[0] = 0;
-    CHECK(player_render(p, px, 64, 36, 64) == 1 && px[0] >> 24 == 0xFF);
+    CHECK(player_render(p, px, 64, 36, 64) == PLAYER_NEW_PICTURE && px[0] >> 24 == 0xFF);
+    CHECK(player_render(p, px, 64, 36, 64) == PLAYER_SAME_PICTURE); /* nothing new yet */
+    player_pump(p, 11600);
+    CHECK(player_render(p, px, 64, 36, 64) == PLAYER_NEW_PICTURE);
     player_set_volume(p, 130);
     CHECK(player_get(p)->volume == 100);
     player_stop(p);
@@ -86,6 +89,15 @@ static void test_classify_messages(void)
     CHECK(player_classify("ERROR: Unable to download webpage: <urlopen error [Errno 8] nodename nor servname provided, or not known>") == PERR_OFFLINE);
     CHECK(player_classify("[ffmpeg] tcp: Failed to resolve hostname www.youtube.com: Temporary failure in name resolution") == PERR_OFFLINE);
     CHECK(player_classify("Failed to recognize file format.") == PERR_PLAYBACK);
+    /* mpv with libmpv 2.5, 2026-10-28: yt-dlp missing, then mpv's own retry 404s. */
+    CHECK(player_classify("[ytdl_hook] Subprocess failed: init\n"
+                          "[ytdl_hook] youtube-dl failed: not found or not enough permissions\n"
+                          "[ffmpeg] https: HTTP error 404 Not Found\n") == PERR_NO_RESOLVER);
+    /* No way out to the internet (a dead proxy stood in for Wi-Fi off). */
+    CHECK(player_classify("[ytdl_hook] ERROR: [youtube:tab] @ntvkenya/live: Unable to download API page: "
+                          "('Unable to connect to proxy', NewConnectionError(\"HTTPSConnection(host='127.0.0.1', "
+                          "port=9): Failed to establish a new connection: [Errno 61] Connection refused\"))\n"
+                          "[ytdl_hook] youtube-dl failed: unexpected error occurred\n") == PERR_OFFLINE);
     CHECK(player_classify("") == PERR_PLAYBACK && player_classify(NULL) == PERR_PLAYBACK);
 }
 

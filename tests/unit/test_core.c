@@ -612,6 +612,8 @@ static void test_live_zapping_tunes_once(void)
     CHECK(l.shown == 0);
     live_tick(&l, LIVE_BANNER_MS);
     CHECK(l.banner_ms == 0 && l.current == 0);
+    live_started(&l); /* the picture arrived late: banner again */
+    CHECK(l.banner_ms == LIVE_BANNER_MS);
 }
 
 static void test_live_volume_panel_and_errors(void)

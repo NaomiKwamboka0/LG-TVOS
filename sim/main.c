@@ -34,6 +34,7 @@ static player *pl;
 static player_prefs prefs;
 static int quit_req;
 static int script_mode;
+static int script_realtime; /* --keys with an explicit --player: waits take real time */
 static char *script_tokens[1024];
 static int script_len, script_pos, script_wait;
 
@@ -72,12 +73,16 @@ static const sim_frontend *fe = &frontend_window;
 static const sim_frontend *fe = &frontend_text;
 #endif
 const char *sim_dump_path;
+int sim_show_stats;
 
 /* frame_ms > 0: wait at most this long; 0: block until a key. */
 static ft_key next_key(int frame_ms)
 {
-    if (script_mode)
+    if (script_mode) {
+        if (script_realtime)
+            fe->poll(frame_ms > 0 && frame_ms < FRAME_MS ? frame_ms : FRAME_MS, &quit_req);
         return script_next();
+    }
     return fe->poll(frame_ms, &quit_req);
 }
 
@@ -87,7 +92,7 @@ static ft_key next_key(int frame_ms)
 static uint64_t loop_now(void)
 {
     static uint64_t fake;
-    if (script_mode)
+    if (script_mode && !script_realtime)
         return fake += FRAME_MS;
     return plat_monotonic_ms();
 }
@@ -341,7 +346,7 @@ static void run_live(session *ss, shell *s, int index)
 {
     live l;
     uint64_t last = loop_now();
-    int done = 0;
+    int done = 0, was_playing = 0;
 
     live_init(&l, s->cfg.channels.n, index, prefs.volume);
     player_set_max_height(pl, quality_height(ss->settings.quality));
@@ -356,6 +361,9 @@ static void run_live(session *ss, shell *s, int index)
         if (k != FT_NONE)
             done = live_apply(s, live_key(&l, k, player_get(pl)->state == PLAYER_ERROR)) || done;
         player_pump(pl, now);
+        if (player_get(pl)->state == PLAYER_PLAYING && !was_playing)
+            live_started(&l);
+        was_playing = player_get(pl)->state == PLAYER_PLAYING;
         fe->live(&l, pl, s);
     }
     player_stop(pl);
@@ -429,9 +437,10 @@ static void load_config(shell_config *c, char *warn, size_t n)
 static void usage(void)
 {
     fprintf(stderr,
-            "usage: familytv [--data DIR] [--fullscreen] [--player stub|mpv] [--ytdl PATH] [--verbose]\n"
+            "usage: familytv [--data DIR] [--fullscreen] [--player stub|mpv] [--ytdl PATH] [--verbose] [--stats]\n"
             "                [--keys K,K,...] [--dump-frame FILE.ppm]\n"
-            "  keys: L R U D OK BACK W (wait 1s) Wn (wait n ticks); scripted runs use the stub player\n");
+            "  keys: L R U D OK BACK W (wait 1s) Wn (wait n ticks); scripted runs use the stub player\n"
+            "  unless --player mpv is given; with either --player the waits take real time\n");
 }
 
 /* Milliseconds until the clock on screen next changes. */
@@ -445,7 +454,7 @@ int main(int argc, char **argv)
     shell_config cfg;
     static shell s;
     static session ss;
-    int i, r_load, want_stub = 0, verbose = 0, fullscreen = 0;
+    int i, r_load, want_stub = 0, want_mpv = 0, verbose = 0, fullscreen = 0;
     const char *data_arg = NULL;
     const char *ytdl_path = NULL;
     char warn[160] = "";
@@ -460,8 +469,11 @@ int main(int argc, char **argv)
             fullscreen = 1;
         } else if (!strcmp(argv[i], "--verbose")) {
             verbose = 1;
+        } else if (!strcmp(argv[i], "--stats")) {
+            sim_show_stats = 1;
         } else if (!strcmp(argv[i], "--player") && i + 1 < argc) {
             want_stub = !strcmp(argv[++i], "stub");
+            want_mpv = !strcmp(argv[i], "mpv");
         } else if (!strcmp(argv[i], "--ytdl") && i + 1 < argc) {
             ytdl_path = argv[++i];
         } else if (!strcmp(argv[i], "--keys") && i + 1 < argc) {
@@ -497,7 +509,8 @@ int main(int argc, char **argv)
         snprintf(s.status, sizeof s.status, "%s", warn);
     if (fe->open(script_mode, (fullscreen || prefs.fullscreen) && !script_mode) != 0)
         return 1;
-    pl = make_player(want_stub || script_mode, ytdl_path, verbose);
+    script_realtime = script_mode && (want_mpv || want_stub);
+    pl = make_player(want_stub || (script_mode && !want_mpv), ytdl_path, verbose);
     if (!pl) {
         fe->close();
         fprintf(stderr, "out of memory\n");
