@@ -1,0 +1,18 @@
+# Family TV channels: Kenyan stations' YouTube live streams.
+#
+# One channel per line:   number|name|address|#colour
+#   number   1-999, used for the channel order and the on-screen number
+#   name     as shown on the cards (English letters, digits and spaces)
+#   address  the channel's YouTube "live" address (must start with https://)
+#   colour   optional card colour, like #1E88E5
+#
+# Lines starting with # are notes and are ignored. Save this file as plain
+# text (Notepad is fine). If a line has a mistake, Family TV skips it and
+# says which line on the home screen.
+
+1|Citizen TV|https://www.youtube.com/@citizentvkenya/live|#D32F2F
+2|NTV Kenya|https://www.youtube.com/@ntvkenya/live|#C62828
+3|KTN News|https://www.youtube.com/@KTNNewsKE/live|#1565C0
+4|K24 TV|https://www.youtube.com/@K24TV/live|#E53935
+5|KBC Channel 1|https://www.youtube.com/@KBCChannel1/live|#0D47A1
+6|TV47|https://www.youtube.com/@TV47Kenya/live|#EF6C00

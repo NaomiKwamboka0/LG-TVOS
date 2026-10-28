@@ -20,5 +20,6 @@ extern int failures, checks;
 void test_clean_save(const char *path);
 void run_service_tests(void);
 void run_view_tests(void);
+void run_channel_tests(void);
 
 #endif
