@@ -460,7 +460,8 @@ void canvas_shadow(ft_canvas *c, ft_rect r, int blur, ft_color color)
     }
 }
 
-static long glow_q[SHADOW_MAX];
+/* 64-bit maths: long is 32 bits on Windows and d*d*65536 overflows it. */
+static int32_t glow_q[SHADOW_MAX];
 
 void canvas_glow(ft_canvas *c, int cx, int cy, int rx, int ry, ft_color color)
 {
@@ -475,13 +476,13 @@ void canvas_glow(ft_canvas *c, int cx, int cy, int rx, int ry, ft_color color)
     if (x1 - x0 > SHADOW_MAX)
         return;
     for (x = x0; x < x1; x++) {
-        long d = 2L * (x - cx) + 1;
-        glow_q[x - x0] = d * d * 65536 / (4L * rx * rx);
+        int64_t d = 2 * (int64_t)(x - cx) + 1;
+        glow_q[x - x0] = (int32_t)(d * d * 65536 / (4 * (int64_t)rx * rx));
     }
     for (y = y0; y < y1; y++) {
-        long d = 2L * (y - cy) + 1, qy = d * d * 65536 / (4L * ry * ry);
+        int64_t d = 2 * (int64_t)(y - cy) + 1, qy = d * d * 65536 / (4 * (int64_t)ry * ry);
         for (x = x0; x < x1; x++) {
-            long q = qy + glow_q[x - x0], t, f;
+            int64_t q = qy + glow_q[x - x0], t, f;
             if (q >= 65536)
                 continue;
             t = 65536 - q;
@@ -503,13 +504,13 @@ void canvas_glow_mask(uint8_t *mask, int w, int h, int cx, int cy, int rx, int r
     if (x1 - x0 > SHADOW_MAX)
         return;
     for (x = x0; x < x1; x++) {
-        long d = 2L * (x - cx) + 1;
-        glow_q[x - x0] = d * d * 65536 / (4L * rx * rx);
+        int64_t d = 2 * (int64_t)(x - cx) + 1;
+        glow_q[x - x0] = (int32_t)(d * d * 65536 / (4 * (int64_t)rx * rx));
     }
     for (y = y0; y < y1; y++) {
-        long d = 2L * (y - cy) + 1, qy = d * d * 65536 / (4L * ry * ry);
+        int64_t d = 2 * (int64_t)(y - cy) + 1, qy = d * d * 65536 / (4 * (int64_t)ry * ry);
         for (x = x0; x < x1; x++) {
-            long q = qy + glow_q[x - x0], t;
+            int64_t q = qy + glow_q[x - x0], t;
             uint32_t a, m;
             if (q >= 65536)
                 continue;

@@ -5,11 +5,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
 #include <unistd.h>
 
 #include "garden.h"
 #include "penalty.h"
+#include "platform.h"
 #include "racer.h"
 #include "save.h"
 #include "session.h"
@@ -325,6 +325,33 @@ static void test_save_roundtrip_and_recovery(void)
     test_clean_save(p);
 }
 
+/* Windows rename() refuses to overwrite, which used to break the 3rd save
+ * (once .prev existed) and every save after a quarantine (once .bad existed). */
+static void test_save_many_writes_and_repeat_quarantine(void)
+{
+    const char *p = TMP "/m.sav";
+    char data[16] = "", want[16];
+    uint32_t len = 0;
+    int i;
+    test_clean_save(p);
+    for (i = 1; i <= 5; i++) {
+        snprintf(want, sizeof want, "save %d", i);
+        CHECK(ft_save_write(p, "TEST", 1, want, (uint32_t)strlen(want) + 1) == FT_SAVE_OK);
+    }
+    CHECK(ft_save_read(p, "TEST", 1, data, sizeof data, &len) == FT_SAVE_OK && strcmp(data, "save 5") == 0);
+    corrupt_byte(p, 22);
+    CHECK(ft_save_read(p, "TEST", 1, data, sizeof data, &len) == FT_SAVE_RESTORED_PREV);
+    CHECK(strcmp(data, "save 4") == 0);
+    for (i = 0; i < 2; i++) { /* the second quarantine finds .bad already there */
+        CHECK(ft_save_write(p, "TEST", 1, "again", 6) == FT_SAVE_OK);
+        corrupt_byte(p, 22);
+        CHECK(ft_save_read(p, "TEST", 1, data, sizeof data, &len) == FT_SAVE_RESTORED_PREV);
+    }
+    CHECK(ft_save_write(p, "TEST", 1, "last", 5) == FT_SAVE_OK);
+    CHECK(ft_save_read(p, "TEST", 1, data, sizeof data, &len) == FT_SAVE_OK && strcmp(data, "last") == 0);
+    test_clean_save(p);
+}
+
 static void test_save_rejects_wrong_schema_truncation_and_size(void)
 {
     const char *p = TMP "/s.sav";
@@ -476,8 +503,8 @@ static void test_shell_kiswahili_labels(void)
 
 int main(void)
 {
-    mkdir("out", 0755);
-    mkdir(TMP, 0755);
+    plat_mkdir("out");
+    plat_mkdir(TMP);
 
     test_racer_patterns_always_safe();
     test_racer_bot_finishes_every_level();
@@ -493,6 +520,7 @@ int main(void)
     test_garden_cursor_clamps_and_places();
     test_garden_menu_flow();
     test_save_roundtrip_and_recovery();
+    test_save_many_writes_and_repeat_quarantine();
     test_save_rejects_wrong_schema_truncation_and_size();
     test_shell_hides_untested_apps();
     test_shell_dad_reaches_favourite_in_two_choices();

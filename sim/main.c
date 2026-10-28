@@ -4,13 +4,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
 
 #include "garden.h"
 #include "penalty.h"
 #include "platform.h"
+#include "playtime.h"
 #include "racer.h"
 #include "frontend.h"
 #include "save.h"
@@ -81,28 +81,16 @@ static uint64_t meter_now(void)
     return plat_monotonic_ms();
 }
 
-typedef struct {
-    uint64_t last_ms;
-    uint32_t carry_ms;
-} play_meter;
-
 static void meter_start(play_meter *m)
 {
-    m->last_ms = meter_now();
-    m->carry_ms = 0;
+    play_meter_start(m, meter_now());
 }
 
 /* Counts time only while the game is actively played (not paused).
  * Returns 0 once a child's allowance has run out. */
 static int meter_step(play_meter *m, int active, session *ss, shell *s)
 {
-    uint64_t now = meter_now();
-    uint32_t secs;
-    if (active)
-        m->carry_ms += (uint32_t)(now - m->last_ms);
-    m->last_ms = now;
-    secs = m->carry_ms / 1000;
-    m->carry_ms %= 1000;
+    uint32_t secs = play_meter_step(m, meter_now(), active);
     return secs ? session_play_account(ss, s, secs) : 1;
 }
 
@@ -340,8 +328,8 @@ int main(int argc, char **argv)
         }
     }
 
-    mkdir("out", 0755);
-    mkdir(data_dir, 0755);
+    plat_mkdir("out");
+    plat_mkdir(data_dir);
     base_config(&cfg, demo);
     shell_init(&s, &cfg);
     {

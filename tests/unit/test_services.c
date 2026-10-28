@@ -131,6 +131,22 @@ static void test_play_pack(void)
     CHECK(play_unpack(&q, buf, sizeof buf) != 0);
 }
 
+static void test_play_meter_clamps_sleep(void)
+{
+    play_meter m;
+    uint32_t total = 0;
+    uint64_t t = 5000;
+    int i;
+    play_meter_start(&m, t);
+    for (i = 0; i < 90; i++) /* 3 s of 30 Hz frames */
+        total += play_meter_step(&m, t += 33 + (i % 3 == 0), 1);
+    CHECK(total == 3);
+    total += play_meter_step(&m, t += 3u * 3600u * 1000u, 1); /* lid closed for 3 hours */
+    CHECK(total <= 4);
+    CHECK(play_meter_step(&m, t += 5000, 0) == 0); /* paused: nothing counted */
+    CHECK(play_meter_step(&m, t - 100, 1) == 0); /* clock never goes back, but stay safe */
+}
+
 /* ---- Translations and settings ------------------------------------- */
 
 static void test_i18n_complete(void)
@@ -388,6 +404,7 @@ void run_service_tests(void)
     test_play_limits();
     test_play_clock_rules();
     test_play_pack();
+    test_play_meter_clamps_sleep();
     test_i18n_complete();
     test_settings_roundtrip_and_validation();
     test_session_pin_creation_and_child_switch();

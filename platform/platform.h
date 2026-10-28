@@ -1,9 +1,7 @@
 #ifndef FT_PLATFORM_H
 #define FT_PLATFORM_H
 
-/* Platform adapter (plan p.7, p.9): our own interface, not an LG API.
- * Every operation returns PLAT_UNSUPPORTED until the matching device
- * interface has been identified and verified on this TV. */
+/* Platform adapter: our own interface over the desktop OS (macOS, Windows). */
 
 #include <stdint.h>
 
@@ -22,5 +20,10 @@ plat_status plat_random(void *buf, unsigned n);
 int64_t plat_wall_utc(void);
 /* Monotonic milliseconds from an arbitrary origin; never goes backwards. */
 uint64_t plat_monotonic_ms(void);
+
+/* 0 if the folder exists afterwards. */
+int plat_mkdir(const char *path);
+/* Renames from over to, replacing to if it exists. 0 on success. */
+int plat_replace(const char *from, const char *to);
 
 #endif

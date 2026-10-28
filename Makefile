@@ -8,10 +8,19 @@ INC := -Igames -Iui -Iplatform -Iservices -Isim -Ithird_party/monocypher
 CORE_SRC := games/common.c games/save.c games/racer.c games/penalty.c games/garden.c \
             ui/shell.c services/i18n.c services/pin.c services/playtime.c services/settings.c \
             services/session.c third_party/monocypher/monocypher.c \
-            ui/canvas.c ui/font_ui_data.c ui/art.c ui/view.c
+            ui/canvas.c ui/font_ui_data.c ui/art.c ui/view.c platform/desktop.c
 CORE_HDR := $(wildcard games/*.h ui/*.h platform/*.h services/*.h sim/*.h third_party/monocypher/*.h)
 TEST_SRC := tests/unit/test_core.c tests/unit/test_services.c tests/unit/test_view.c
-SIM_SRC := $(CORE_SRC) platform/sim.c sim/render_text.c sim/frontend_text.c sim/main.c
+SIM_SRC := $(CORE_SRC) sim/render_text.c sim/frontend_text.c sim/main.c
+# Sanitizers for the unit tests where the toolchain has them (not mingw).
+SAN ?= -fsanitize=address,undefined
+SYS_LIBS :=
+
+ifeq ($(OS),Windows_NT)
+# Native MSYS2 UCRT64 build. The terminal frontend needs termios, so Windows gets the window only.
+SAN :=
+SYS_LIBS := -lbcrypt
+endif
 
 # Desktop window (SDL2: brew install sdl2).
 SDL_CONFIG := $(shell command -v sdl2-config 2>/dev/null)
@@ -100,17 +109,17 @@ screens: $(OUT)/host/familytv-shots
 bench: $(OUT)/host/familytv-bench
 	$(OUT)/host/familytv-bench
 
-$(OUT)/host/familytv-bench: $(CORE_SRC) platform/sim.c sim/bench.c $(CORE_HDR)
+$(OUT)/host/familytv-bench: $(CORE_SRC) sim/bench.c $(CORE_HDR)
 	mkdir -p $(OUT)/host
-	$(CC) -O2 $(WARN) $(INC) -o $@ $(CORE_SRC) platform/sim.c sim/bench.c
+	$(CC) -O2 $(WARN) $(INC) -o $@ $(CORE_SRC) sim/bench.c
 
-$(OUT)/host/familytv-shots: $(CORE_SRC) platform/sim.c sim/shots.c $(CORE_HDR)
+$(OUT)/host/familytv-shots: $(CORE_SRC) sim/shots.c $(CORE_HDR)
 	mkdir -p $(OUT)/host
-	$(CC) $(CFLAGS) $(WARN) $(INC) -o $@ $(CORE_SRC) platform/sim.c sim/shots.c
+	$(CC) $(CFLAGS) $(WARN) $(INC) -o $@ $(CORE_SRC) sim/shots.c
 
-$(OUT)/host/test-core: $(CORE_SRC) platform/sim.c $(TEST_SRC) tests/unit/check.h $(CORE_HDR)
+$(OUT)/host/test-core: $(CORE_SRC) $(TEST_SRC) tests/unit/check.h $(CORE_HDR)
 	mkdir -p $(OUT)/host
-	$(CC) $(CFLAGS) $(WARN) $(INC) -Itests/unit -fsanitize=address,undefined -o $@ $(CORE_SRC) platform/sim.c $(TEST_SRC)
+	$(CC) $(CFLAGS) $(WARN) $(INC) -Itests/unit $(SAN) -o $@ $(CORE_SRC) $(TEST_SRC) $(SYS_LIBS)
 
 test: $(OUT)/host/test-core
 	$(OUT)/host/test-core

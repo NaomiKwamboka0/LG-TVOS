@@ -7,6 +7,17 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "platform.h"
+
+#ifdef _WIN32
+#include <io.h>
+/* Text mode would turn every 0x0A byte into 0D 0A. */
+#define WRITE_FLAGS (O_WRONLY | O_CREAT | O_TRUNC | O_BINARY)
+#define fsync _commit
+#else
+#define WRITE_FLAGS (O_WRONLY | O_CREAT | O_TRUNC)
+#endif
+
 #define HDR 20 /* magic[4] schema u16 reserved u16 seq u32 len u32 checksum u32 */
 #define PATH_MAX_LEN 512
 
@@ -74,6 +85,10 @@ static int write_all(int fd, const void *data, size_t n)
     return 0;
 }
 
+#ifdef _WIN32
+/* Windows cannot open a folder for flushing; MOVEFILE_WRITE_THROUGH covers the rename. */
+static void sync_parent_dir(const char *path) { (void)path; }
+#else
 static void sync_parent_dir(const char *path)
 {
     char dir[PATH_MAX_LEN];
@@ -96,6 +111,7 @@ static void sync_parent_dir(const char *path)
         close(fd);
     }
 }
+#endif
 
 static int with_suffix(char *out, const char *path, const char *suffix)
 {
@@ -130,7 +146,7 @@ int ft_save_write(const char *path, const char magic[4], uint16_t schema,
     put32(h + 12, len);
     put32(h + 16, fnv((const uint8_t *)data, len, fnv(h, 16, 2166136261u)));
 
-    fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    fd = open(tmp, WRITE_FLAGS, 0644);
     if (fd < 0)
         return FT_SAVE_IO;
     ok = write_all(fd, h, HDR) == 0 && write_all(fd, data, len) == 0 && fsync(fd) == 0;
@@ -140,11 +156,11 @@ int ft_save_write(const char *path, const char magic[4], uint16_t schema,
         unlink(tmp);
         return FT_SAVE_IO;
     }
-    if (current_valid && rename(path, prev) != 0) {
+    if (current_valid && plat_replace(path, prev) != 0) {
         unlink(tmp);
         return FT_SAVE_IO;
     }
-    if (rename(tmp, path) != 0)
+    if (plat_replace(tmp, path) != 0)
         return FT_SAVE_IO;
     sync_parent_dir(path);
     return FT_SAVE_OK;
@@ -158,7 +174,7 @@ int ft_save_read(const char *path, const char magic[4], uint16_t schema,
     if (r == FT_SAVE_OK)
         return r;
     if (r == FT_SAVE_CORRUPT && with_suffix(bad, path, ".bad") == 0)
-        rename(path, bad);
+        plat_replace(path, bad);
     if (with_suffix(prev, path, ".prev") == 0 &&
         read_one(prev, magic, schema, buf, cap, out_len, NULL) == FT_SAVE_OK)
         return FT_SAVE_RESTORED_PREV;

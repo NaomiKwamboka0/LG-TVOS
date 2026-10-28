@@ -125,3 +125,21 @@ int play_unpack(play_policy *p, const uint8_t *in, size_t n)
     *p = q;
     return 0;
 }
+
+void play_meter_start(play_meter *m, uint64_t now_ms)
+{
+    m->last_ms = now_ms;
+    m->carry_ms = 0;
+}
+
+uint32_t play_meter_step(play_meter *m, uint64_t now_ms, int active)
+{
+    uint64_t gap = now_ms > m->last_ms ? now_ms - m->last_ms : 0;
+    uint32_t secs;
+    if (active)
+        m->carry_ms += (uint32_t)(gap < PLAY_METER_MAX_STEP_MS ? gap : PLAY_METER_MAX_STEP_MS);
+    m->last_ms = now_ms;
+    secs = m->carry_ms / 1000;
+    m->carry_ms %= 1000;
+    return secs;
+}

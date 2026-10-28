@@ -68,6 +68,24 @@ static void test_blending_and_colour(void)
     CHECK(canvas_get(&c, 0, 0) == v);
 }
 
+/* The home backdrop glow is 820 px wide; its maths overflowed 32-bit long (Windows). */
+static void test_wide_glow(void)
+{
+    static uint32_t px[1280 * 720];
+    ft_canvas c;
+    ft_color centre, near_edge, far;
+    canvas_init(&c, px, 1280, 720, 1280);
+    canvas_clear(&c, 0xFF000000u);
+    canvas_glow(&c, 640, 360, 820, 470, 0xFFFFFFFFu);
+    centre = canvas_get(&c, 640, 360);
+    near_edge = canvas_get(&c, 40, 360);
+    far = canvas_get(&c, 0, 0);
+    CHECK((centre & 0xFF) > (near_edge & 0xFF));
+    CHECK((near_edge & 0xFF) >= (far & 0xFF));
+    CHECK((centre & 0xFF) >= 0xF0);
+    CHECK(canvas_get(&c, 640 - 300, 360) == canvas_get(&c, 640 + 299, 360)); /* symmetric */
+}
+
 static int has_ink(const ft_canvas *c, int x0, int x1, int y0, int y1, ft_color bg)
 {
     int x, y;
@@ -245,6 +263,7 @@ static void test_all_views_all_states(void)
 
 void run_view_tests(void)
 {
+    test_wide_glow();
     test_canvas_never_writes_outside();
     test_blending_and_colour();
     test_fonts_and_kerning();

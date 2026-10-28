@@ -4,8 +4,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
 
+#include "platform.h"
 #include "view.h"
 
 static uint32_t pixels[VIEW_W * VIEW_H];
@@ -186,7 +186,7 @@ static void garden_shots(void)
 int main(int argc, char **argv)
 {
     out_dir = argc > 1 ? argv[1] : "out/screens";
-    mkdir(out_dir, 0755);
+    plat_mkdir(out_dir);
     canvas_init(&canvas, pixels, VIEW_W, VIEW_H, VIEW_W);
     shell_shots();
     racer_shots();
