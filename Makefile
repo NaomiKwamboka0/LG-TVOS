@@ -3,14 +3,15 @@ OUT := out
 
 CFLAGS ?= -O2 -g
 WARN := -std=c99 -Wall -Wextra -pedantic
-INC := -Igames -Iui -Iplatform -Iservices -Isim -Ithird_party/monocypher
+INC := -Igames -Iui -Iplatform -Iservices -Imedia -Isim -Ithird_party/monocypher
 
 CORE_SRC := games/common.c games/save.c games/racer.c games/penalty.c games/garden.c \
             ui/shell.c services/i18n.c services/pin.c services/playtime.c services/settings.c \
             services/session.c services/channels.c services/prefs.c third_party/monocypher/monocypher.c \
-            ui/canvas.c ui/font_ui_data.c ui/art.c ui/view.c platform/desktop.c
-CORE_HDR := $(wildcard games/*.h ui/*.h platform/*.h services/*.h sim/*.h third_party/monocypher/*.h)
-TEST_SRC := tests/unit/test_core.c tests/unit/test_services.c tests/unit/test_view.c tests/unit/test_channels.c
+            ui/canvas.c ui/font_ui_data.c ui/art.c ui/view.c platform/desktop.c \
+            media/player.c media/player_stub.c
+CORE_HDR := $(wildcard games/*.h ui/*.h platform/*.h services/*.h media/*.h sim/*.h third_party/monocypher/*.h)
+TEST_SRC := tests/unit/test_core.c tests/unit/test_services.c tests/unit/test_view.c tests/unit/test_channels.c tests/unit/test_player.c
 SIM_SRC := $(CORE_SRC) sim/render_text.c sim/frontend_text.c sim/main.c
 # Sanitizers for the unit tests where the toolchain has them (not mingw).
 SAN ?= -fsanitize=address,undefined

@@ -23,5 +23,6 @@ void test_corrupt_byte(const char *path, long off);
 void run_service_tests(void);
 void run_view_tests(void);
 void run_channel_tests(void);
+void run_player_tests(void);
 
 #endif

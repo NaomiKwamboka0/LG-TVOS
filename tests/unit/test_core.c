@@ -530,6 +530,7 @@ int main(void)
     test_shell_kiswahili_labels();
     run_service_tests();
     run_channel_tests();
+    run_player_tests();
     run_view_tests();
 
     printf("%d checks, %d failures\n", checks, failures);
