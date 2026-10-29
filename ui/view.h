@@ -40,6 +40,12 @@ void view_live(ft_canvas *c, const live *l, const player_status *ps, const shell
 uint32_t view_live_signature(const live *l, const player_status *ps, const shell *s, const channel_list *chs,
                              const char *clock_text, int has_picture);
 
+/* The bar above a site shown inside Family TV (YouTube, Netflix): the Back
+ * button, which app it is and the clock. The site fills the rest. */
+#define VIEW_WEB_BAR_H 56
+void view_web_bar(ft_canvas *c, int app, int back_focused, const char *clock_text);
+ft_rect view_web_back_rect(void);
+
 /* The mouse: what is under a point of the 1280x720 layout. CARD: row,
  * col; TOP: col is the tab, TOP_GEAR or TOP_PROFILE; ITEM: col is the
  * list row; PIN: col is the digit. whole: the card is fully on screen

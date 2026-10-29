@@ -5,8 +5,6 @@
 
 static const ft_str GAME_NAME[GAME_COUNT] = {STR_GAME_RACER, STR_GAME_PENALTY, STR_GAME_GARDEN};
 static const ft_str TAB_NAME[TAB_COUNT] = {STR_FOR_YOU, STR_LIVE_TV, STR_SPORTS, STR_YOUTUBE, STR_APPS};
-static const ft_str FEED_NAME[YT_FEEDS] = {STR_YT_RESULTS, STR_YT_FOOTBALL, STR_YT_KENYA, STR_YT_MUSIC,
-                                          STR_YT_COMEDY};
 static const char KEY_CHARS[] = "abcdefghijklmnopqrstuvwxyz0123456789";
 static const ft_str QUALITY_LABEL[] = {STR_QUALITY_360, STR_QUALITY_480, STR_QUALITY_720, STR_QUALITY_1080};
 static const char *const APP_NAME[APP_COUNT] = {"Netflix", "YouTube"};
@@ -212,26 +210,18 @@ static void sports_rows(const shell *s, shell_row *out, int *n, int max)
     }
 }
 
-/* The search bar, then the results of the family's search, then the
- * ready-made rows. YouTube reaches everything: parents only. */
+/* YouTube and Netflix are the real sites in a window of their own, so this
+ * tab is only the way to them. They reach everything: parents only. */
 static void youtube_rows(const shell *s, shell_row *out, int *n, int max)
 {
-    shell_row *r;
-    int f, i;
+    shell_row *r = new_row(out, n, max, ROW_CARDS, STR_YOUTUBE);
+    int a;
     if (s->cfg.profile != PROFILE_PARENT) {
-        put(new_row(out, n, max, ROW_CARDS, STR_YOUTUBE), CARD_ASK_PARENT, 0);
+        put(r, CARD_ASK_PARENT, 0);
         return;
     }
-    put(new_row(out, n, max, ROW_SEARCH, STR_COUNT), CARD_YT_SEARCH, 0);
-    for (f = 0; f < YT_FEEDS; f++) {
-        if (f == 0 && !s->cfg.yt_query[0])
-            continue;
-        r = new_row(out, n, max, ROW_CARDS, FEED_NAME[f]);
-        for (i = 0; i < s->cfg.nvideos[f] && i < YT_FEED_MAX; i++)
-            put(r, CARD_VIDEO, f * YT_FEED_MAX + i);
-        if (s->cfg.nvideos[f] == 0)
-            put(r, CARD_YT_LOADING, f);
-    }
+    for (a = 0; a < APP_COUNT; a++)
+        put(r, CARD_APP, a);
 }
 
 int shell_home_rows(const shell *s, shell_row *out, int max)
@@ -484,11 +474,7 @@ static shell_action home_key(shell *s, ft_key k)
         select_tab(s, TAB_SPORTS); /* the banner and the Apps tile lead to the Sports tab */
         s->top = TAB_SPORTS;
         s->row = 0;
-    } else if (k == FT_OK && r->n > 0 && r->cards[*col].kind == CARD_APP && r->cards[*col].arg == APP_YOUTUBE) {
-        select_tab(s, TAB_YOUTUBE); /* YouTube lives inside Family TV */
-        s->top = TAB_YOUTUBE;
-        s->row = 0;
-    } else if (k == FT_OK && r->n > 0 && r->cards[*col].kind == CARD_YT_SEARCH) {
+        } else if (k == FT_OK && r->n > 0 && r->cards[*col].kind == CARD_YT_SEARCH) {
         s->screen = SCR_KEYBOARD;
         s->item = 0;
     } else if (k == FT_OK && r->n > 0) {
@@ -589,7 +575,7 @@ static shell_action keyboard_key(shell *s, ft_key k)
 shell_action shell_type(shell *s, int ch)
 {
     shell_action a = {ACT_NONE, 0};
-    if (s->screen == SCR_HOME && s->tab == TAB_YOUTUBE && s->cfg.profile == PROFILE_PARENT &&
+    if (0 && s->screen == SCR_HOME &&
         ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9'))) {
         s->screen = SCR_KEYBOARD; /* typing on the YouTube tab starts a search */
         s->item = 0;

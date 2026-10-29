@@ -135,5 +135,5 @@ static int text_is_fullscreen(void)
 
 const sim_frontend frontend_text = {
     "text", text_folders, text_open, raw_off, text_poll, NULL, NULL, NULL, text_shell, text_racer, text_penalty, text_garden,
-    text_live, NULL, text_is_fullscreen, text_open_url, NULL
+    text_live, NULL, text_is_fullscreen, text_open_url, NULL, NULL
 };

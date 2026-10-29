@@ -35,6 +35,14 @@ SDL_LIBS := $(shell sdl2-config --libs)
 WINDOW_CHECK := window-smoke
 endif
 
+# YouTube and Netflix inside the window: WebKit on a Mac, WebView2 on Windows.
+ifeq ($(shell uname -s 2>/dev/null),Darwin)
+WEB_SRC := sim/web_mac.m
+WEB_LIBS := -framework WebKit -framework Cocoa
+else
+WEB_SRC := sim/web_none.c
+endif
+
 # Live channels need libmpv (brew install mpv pkgconf). Without it the
 # window still builds and says live TV is not included.
 MPV_OK := $(shell pkg-config --exists mpv 2>/dev/null && echo yes)
@@ -60,11 +68,11 @@ run-term: term
 
 window: $(OUT)/host/familytv
 
-$(OUT)/host/familytv: $(SIM_SRC) sim/frontend_window.c $(MPV_SRC) $(CORE_HDR)
+$(OUT)/host/familytv: $(SIM_SRC) sim/frontend_window.c $(WEB_SRC) $(MPV_SRC) $(CORE_HDR)
 	@if [ -z "$(SDL_CONFIG)" ]; then echo "SDL2 not found: brew install sdl2"; exit 1; fi
 	mkdir -p $(OUT)/host
-	$(CC) $(CFLAGS) $(WARN) $(INC) $(SDL_CFLAGS) $(MPV_CFLAGS) -DFT_WINDOW -o $@ \
-	  $(SIM_SRC) sim/frontend_window.c $(MPV_SRC) $(SDL_LIBS) $(MPV_LIBS) $(SYS_LIBS)
+	$(CC) $(CFLAGS) $(WARN) $(INC) $(SDL_CFLAGS) $(MPV_CFLAGS) $(WEB_CFLAGS) -DFT_WINDOW -o $@ \
+	  $(SIM_SRC) sim/frontend_window.c $(WEB_SRC) $(MPV_SRC) $(SDL_LIBS) $(MPV_LIBS) $(WEB_LIBS) $(SYS_LIBS)
 
 # Family TV in a window: arrows, Enter = OK, Backspace/Esc = Back, q = quit.
 run: window
@@ -181,7 +189,7 @@ WIN_SDL := deps/sdl2/x/SDL2-2.32.10/x86_64-w64-mingw32
 WIN_MPV := deps/mpv/x
 WIN_OUT := $(OUT)/win
 WIN_DIR := $(WIN_OUT)/FamilyTV
-WIN_SRC := $(CORE_SRC) sim/render_text.c sim/main.c sim/frontend_window.c media/player_mpv.c
+WIN_SRC := $(CORE_SRC) sim/render_text.c sim/main.c sim/frontend_window.c sim/web_none.c media/player_mpv.c
 WIN_FLAGS := -O2 $(WARN) $(INC) -isystem $(WIN_SDL)/include/SDL2 -isystem $(WIN_MPV)/include \
              -DFT_WINDOW -DFT_HAVE_MPV
 # Only Windows' own DLLs, plus the two we ship: no hidden gcc/pthread DLLs.

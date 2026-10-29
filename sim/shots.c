@@ -152,6 +152,13 @@ static void shell_shots(void)
     view_shell(&canvas, &s, "20:01");
     save("23-netflix-tile");
 
+    config(&c, LANG_EN, PROFILE_PARENT);
+    shell_init(&s, &c);
+    shell_focus_top(&s, TAB_YOUTUBE);
+    shell_focus_card(&s, 0, 0);
+    view_shell(&canvas, &s, "20:01");
+    save("28-streaming-tab");
+
     /* YouTube: the search keyboard, part-way through typing */
     config(&c, LANG_EN, PROFILE_PARENT);
     shell_init(&s, &c);

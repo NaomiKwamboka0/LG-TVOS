@@ -50,6 +50,10 @@ typedef struct {
     int (*is_fullscreen)(void);
     /* Opens an address in the web browser (and gets out of its way). 0 = ok. */
     int (*open_url)(const char *url);
+    /* Shows app's real site (YouTube, Netflix) inside the window under a
+     * Family TV bar, until the family presses its Back button. 0 when done;
+     * -1 when this computer has no web view (then open_url). May be NULL. */
+    int (*browse)(int app, const char *url, const char *data_dir, int *quit);
     /* One frame of the start-up animation (t: 0..VIEW_STARTUP_MS). May be NULL. */
     void (*startup)(uint32_t t_ms, ft_lang lang);
 } sim_frontend;

@@ -745,16 +745,14 @@ static art_id card_art(shell_card k)
 /* Streaming services show their name, never a logo. */
 static void app_tile(ft_canvas *c, ft_rect r, int app, int focused, int tx, int ty)
 {
-    static const ft_color ACCENT[APP_COUNT] = {FT_RGB(0xE50914), FT_RGB(0xFF0033)};
-    ft_color accent = ACCENT[app % APP_COUNT];
-    ft_rect name = {r.x, r.y, r.w, r.h - 8};
+    ft_color accent = app == APP_NETFLIX ? FT_RGB(0xE50914) : FT_RGB(0xFF0000);
     ft_canvas clip;
     int ox, oy;
     art_slab(c, r, 14, FT_RGB(0x2C2D34), FT_RGB(0x0F1013), focused, tx, ty);
     if (canvas_clip(c, (ft_rect){r.x + 4, r.y + 4, r.w - 8, r.h - 8}, &clip, &ox, &oy)) /* the brand colour glows up */
         canvas_glow(&clip, r.x + r.w / 2 - ox, r.y + r.h - oy, r.w * 6 / 10, r.h * 5 / 10, color_alpha(accent, 0x99));
-    canvas_text_center(c, &font_title, (ft_rect){name.x + 1, name.y + 2, name.w, name.h}, shell_app_name(app), 0x8C000000u);
-    canvas_text_center(c, &font_title, name, shell_app_name(app), COL_TEXT);
+    art_glyph(c, app == APP_NETFLIX ? ART_NETFLIX : ART_YOUTUBE, r.x + r.w / 2, r.y + r.h / 2, r.h * 36 / 100,
+              COL_TEXT);
 }
 
 /* An official sports channel: its colour, its name, and whether a match is
@@ -898,7 +896,7 @@ static void search_bar(ft_canvas *c, ft_rect r, const shell *s, int focused)
 static const char *card_caption(const shell *s, shell_card k)
 {
     if (k.kind == CARD_APP)
-        return tr(s->cfg.lang, STR_OPENS_BROWSER);
+        return shell_app_name(k.arg);
     if (k.kind == CARD_SPORT && k.arg >= 0 && k.arg < s->cfg.sports.n) {
         const sport_status *st = &s->cfg.sport[k.arg];
         return st->state == SPORT_LIVE || st->state == SPORT_UPCOMING ? st->title : "";
@@ -1288,6 +1286,40 @@ static void pin(ft_canvas *c, const shell *s, const char *clock_text)
     }
     toast(c, s->status, 478);
     hint(c, tr(L, STR_HELP_PIN));
+}
+
+/* ---- a site inside Family TV --------------------------------------------- */
+
+ft_rect view_web_back_rect(void)
+{
+    ft_rect r = {16, 8, 176, VIEW_WEB_BAR_H - 16};
+    return r;
+}
+
+void view_web_bar(ft_canvas *c, int app, int back_focused, const char *clock_text)
+{
+    ft_rect bar = {0, 0, VIEW_W, VIEW_WEB_BAR_H};
+    ft_rect back = view_web_back_rect();
+    const char *name = shell_app_name(app);
+    int nw = text_width(&font_label, name), x = (VIEW_W - nw - 44) / 2, ay = back.y + back.h / 2;
+    canvas_gradient(c, bar, FT_RGB(0x1C1E25), FT_RGB(0x111216));
+    canvas_fill(c, (ft_rect){0, VIEW_WEB_BAR_H - 1, VIEW_W, 1}, COL_GLASS_EDGE);
+    if (back_focused)
+        canvas_shadow(c, lift(back, 2, 2), 14, 0x59FFFFFFu);
+    art_slab(c, back, back.h / 2, back_focused ? FT_RGB(0xFFFFFF) : FT_RGB(0x3A3E4A),
+             back_focused ? FT_RGB(0xDADCE2) : FT_RGB(0x23262E), back_focused, 0, 0);
+    { /* an arrow pointing back, then the words */
+        ft_color ink = back_focused ? COL_ON_FOCUS : COL_TEXT;
+        canvas_line(c, back.x + 20, ay, back.x + 38, ay, 3, ink);
+        canvas_line(c, back.x + 20, ay, back.x + 28, ay - 8, 3, ink);
+        canvas_line(c, back.x + 20, ay, back.x + 28, ay + 8, 3, ink);
+        canvas_text(c, &font_label, back.x + 50, back.y + (back.h - font_label.line_height) / 2, "Family TV", ink);
+    }
+    art_glyph(c, app == APP_NETFLIX ? ART_NETFLIX : ART_YOUTUBE, x + 16, VIEW_WEB_BAR_H / 2, 14, COL_TEXT);
+    canvas_text(c, &font_label, x + 44, (VIEW_WEB_BAR_H - font_label.line_height) / 2, name, COL_TEXT);
+    if (clock_text)
+        canvas_text_right(c, &font_body, VIEW_W - 24, (VIEW_WEB_BAR_H - font_body.line_height) / 2, clock_text,
+                          COL_TEXT_2);
 }
 
 /* ---- search keyboard ---------------------------------------------------- */

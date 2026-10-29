@@ -5,12 +5,14 @@
  * F11 or F = full screen, q = quit. */
 #define SDL_MAIN_HANDLED
 #include <SDL.h>
+#include <SDL_syswm.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "frontend.h"
 #include "platform.h"
+#include "web.h"
 #include "view.h"
 
 static SDL_Window *window;
@@ -506,9 +508,97 @@ static int window_open_url(const char *url)
     return 0;
 }
 
+/* ---- a site inside the window ------------------------------------------ */
+
+/* Where the web view starts: just below the bar, in thousandths of the
+ * window's height (the canvas may be letterboxed in the window). */
+static int web_top(void)
+{
+    int wx = 0, wy = 0, ww = 0, wh = 0;
+    SDL_RenderLogicalToWindow(renderer, 0, (float)(VIEW_WEB_BAR_H * scale / 2), &wx, &wy);
+    SDL_GetWindowSize(window, &ww, &wh);
+    return wh > 0 ? wy * 1000 / wh + 1 : 80;
+}
+
+static void web_bar(int app, int back_focused)
+{
+    char clock[8];
+    sim_clock_text(clock, sizeof clock);
+    canvas_clear(&canvas, COL_BG);
+    view_web_bar(&canvas, app, back_focused, clock);
+    present();
+}
+
+static int window_browse(int app, const char *url, const char *data_dir, int *quit)
+{
+    SDL_SysWMinfo info;
+    void *native = NULL;
+    int done = 0, hover = 0;
+    SDL_VERSION(&info.version);
+    if (!window || !SDL_GetWindowWMInfo(window, &info))
+        return -1;
+#if defined(SDL_VIDEO_DRIVER_COCOA) && defined(__APPLE__)
+    if (info.subsystem == SDL_SYSWM_COCOA)
+        native = info.info.cocoa.window;
+#endif
+#if defined(_WIN32)
+    if (info.subsystem == SDL_SYSWM_WINDOWS)
+        native = info.info.win.window;
+#endif
+    if (!native)
+        return -1;
+    live_on_screen = 0;
+    use_scale(best_scale());
+    web_bar(app, 0);
+    if (web_open(native, url, data_dir, web_top()) != 0)
+        return -1;
+    SDL_DisableScreenSaver(); /* a film is playing */
+    while (!done && !*quit) {
+        SDL_Event e;
+        ft_rect back = view_web_back_rect();
+        if (!SDL_WaitEventTimeout(&e, 1000)) {
+            web_bar(app, hover); /* the clock */
+            continue;
+        }
+        switch (e.type) {
+        case SDL_QUIT:
+            *quit = 1;
+            break;
+        case SDL_WINDOWEVENT:
+            if (e.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
+                use_scale(best_scale());
+                web_resize(web_top());
+            }
+            web_bar(app, hover);
+            break;
+        case SDL_MOUSEMOTION: { /* only over the bar: the site has the rest */
+            int x = e.motion.x * 2 / scale, y = e.motion.y * 2 / scale;
+            int on = x >= back.x && x < back.x + back.w && y >= back.y && y < back.y + back.h;
+            if (on != hover) {
+                hover = on;
+                web_bar(app, hover);
+            }
+            break;
+        }
+        case SDL_MOUSEBUTTONDOWN: {
+            int x = e.button.x * 2 / scale, y = e.button.y * 2 / scale;
+            done = e.button.button == SDL_BUTTON_LEFT && x >= back.x && x < back.x + back.w && y >= back.y &&
+                   y < back.y + back.h;
+            break;
+        }
+        case SDL_KEYDOWN: /* keys reach us only when the bar, not the site, has them */
+            done = e.key.keysym.sym == SDLK_ESCAPE || e.key.keysym.sym == SDLK_BACKSPACE;
+            break;
+        }
+    }
+    web_close();
+    SDL_EnableScreenSaver();
+    return 0;
+}
+
 const sim_frontend frontend_window = {
     "window", window_folders, window_open, window_close, window_poll, window_pointer, window_text_mode, window_typed,
     window_shell, window_racer,
     window_penalty,
-    window_garden, window_live, window_wake, window_is_fullscreen, window_open_url, window_startup
+    window_garden, window_live, window_wake, window_is_fullscreen, window_open_url, window_browse, window_startup
 };

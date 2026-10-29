@@ -20,6 +20,8 @@ static const struct {
     {FT_RGB(0x8590A3), FT_RGB(0x394152)}, /* Volume */
     {FT_RGB(0xFF5252), FT_RGB(0xB3122E)}, /* Play */
     {FT_RGB(0x8590A3), FT_RGB(0x394152)}, /* Search */
+    {FT_RGB(0xFF3B3B), FT_RGB(0xB3001B)}, /* YouTube */
+    {FT_RGB(0xE50914), FT_RGB(0x8A050C)}, /* Netflix */
 };
 
 /* cos and sin of k * 22.5 degrees, times 1000 (gear teeth). */
@@ -235,6 +237,26 @@ static void magnifier(ft_canvas *c, int cx, int cy, int s, ft_color ink)
     canvas_line(c, cx + P(s, 22), cy + P(s, 22), cx + P(s, 58), cy + P(s, 58), t + 1, ink);
 }
 
+/* Simple marks for the two services, in their colours: a red badge with a
+ * white play triangle, and a red N made of two bars and a slanted stroke. */
+static void youtube_mark(ft_canvas *c, int cx, int cy, int s)
+{
+    ft_rect badge = {cx - P(s, 90), cy - P(s, 63), P(s, 180), P(s, 126)};
+    int tri[6] = {cx - P(s, 22), cy - P(s, 34), cx + P(s, 40), cy, cx - P(s, 22), cy + P(s, 34)};
+    canvas_round(c, badge, P(s, 34), FT_RGB(0xFF0000));
+    canvas_polygon(c, tri, 3, COL_TEXT);
+}
+
+static void netflix_mark(ft_canvas *c, int cx, int cy, int s)
+{
+    int bar = P(s, 30), h = P(s, 130), hh = h / 2;
+    int slant[8] = {cx - P(s, 42), cy - hh, cx - P(s, 42) + bar, cy - hh, cx + P(s, 42), cy + hh,
+                    cx + P(s, 42) - bar, cy + hh};
+    canvas_fill(c, (ft_rect){cx - P(s, 42), cy - hh, bar, h}, FT_RGB(0xB1060F));
+    canvas_fill(c, (ft_rect){cx + P(s, 42) - bar, cy - hh, bar, h}, FT_RGB(0xB1060F));
+    canvas_polygon(c, slant, 4, FT_RGB(0xE50914));
+}
+
 void art_glyph(ft_canvas *c, art_id id, int cx, int cy, int s, ft_color ink)
 {
     int i;
@@ -257,6 +279,8 @@ void art_glyph(ft_canvas *c, art_id id, int cx, int cy, int s, ft_color ink)
     case ART_GARDEN: garden_art(c, cx, cy, s); break;
     case ART_PLAY: play(c, cx, cy, s, ink); break;
     case ART_SEARCH: magnifier(c, cx, cy, s, ink); break;
+    case ART_YOUTUBE: youtube_mark(c, cx, cy, s); break;
+    case ART_NETFLIX: netflix_mark(c, cx, cy, s); break;
     case ART_COUNT:
         break;
     }
@@ -302,7 +326,7 @@ void art_slab(ft_canvas *c, ft_rect r, int radius, ft_color top, ft_color bottom
  * colours, so they get a soft shadow instead. */
 static int one_ink(art_id id)
 {
-    return id != ART_RACER && id != ART_PENALTY && id != ART_GARDEN;
+    return id != ART_RACER && id != ART_PENALTY && id != ART_GARDEN && id != ART_YOUTUBE && id != ART_NETFLIX;
 }
 
 void art_glyph_3d(ft_canvas *c, art_id id, int cx, int cy, int s, ft_color ink, ft_color edge)

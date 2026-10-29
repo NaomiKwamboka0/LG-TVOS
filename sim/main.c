@@ -797,9 +797,12 @@ int main(int argc, char **argv)
                      : ss.watch_list == WATCH_SPORTS ? &s.cfg.sports
                                                      : &s.cfg.channels,
                      ss.watch_channel);
-        else if (r == SESSION_OPEN_APP)
-            snprintf(s.status, sizeof s.status, "%s",
-                     tr(s.cfg.lang, fe->open_url(shell_app_url(ss.open_app)) == 0 ? STR_APP_OPENED : STR_UNAVAILABLE));
+        else if (r == SESSION_OPEN_APP) {
+            /* the real site inside the window; without a web view, its own window */
+            if (!fe->browse || fe->browse(ss.open_app, shell_app_url(ss.open_app), data_dir, &quit_req) != 0)
+                snprintf(s.status, sizeof s.status, "%s",
+                         tr(s.cfg.lang, fe->open_url(shell_app_url(ss.open_app)) == 0 ? STR_APP_OPENED : STR_UNAVAILABLE));
+        }
     }
     player_destroy(pl);
     if (!script_mode) {
