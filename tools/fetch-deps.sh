@@ -1,12 +1,12 @@
 #!/bin/sh
-# Downloads the pinned Windows dependencies (tools/win-deps.lock) into
-# deps/<name>/, checking each SHA-256 first. Each archive is unpacked into
+# Downloads pinned dependencies (a lock file, default tools/win-deps.lock)
+# into deps/<name>/, checking each SHA-256 first. Each archive is unpacked into
 # its own new, empty folder; nothing downloaded is ever run here.
 # Needs curl, shasum, tar, unzip and 7zz (brew install sevenzip).
 set -eu
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-LOCK="$ROOT/tools/win-deps.lock"
+LOCK="${1:-$ROOT/tools/win-deps.lock}"
 DEPS="$ROOT/deps"
 
 grep -v '^#' "$LOCK" | grep -v '^$' | while IFS='|' read -r name version url sha; do
@@ -30,8 +30,8 @@ grep -v '^#' "$LOCK" | grep -v '^$' | while IFS='|' read -r name version url sha
     *.tar.gz) tar -xzf "$file" -C "$dir/x" ;;
     *.zip) unzip -q "$file" -d "$dir/x" ;;
     *.7z) 7zz x -bd -y "-o$dir/x" "$file" > /dev/null ;;
-    *) cp "$file" "$dir/x/" ;;
+    *) cp "$file" "$dir/x/" && chmod +x "$dir/x/$(basename "$file")" ;;
     esac
     echo "$version $sha" > "$dir/.ok"
 done
-echo "win-deps: OK ($DEPS)"
+echo "deps: OK ($DEPS)"

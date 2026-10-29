@@ -3,7 +3,25 @@
 A TV-style home for a laptop: Kenyan TV channels from their YouTube live streams, three family
 games, and parent controls (PIN, children's play time). The look follows TCL's Google TV launcher:
 tabs along the top, a wide banner, rows of cards, a channel guide, and while watching an info banner,
-a channel list and volume. Runs on Windows 10/11 (the family laptop) and macOS (development).
+a channel list and volume. Runs on Windows 10/11 and on Macs with Apple silicon.
+
+[![Watch the 30-second tour](docs/promo/poster.png)](https://github.com/NaomiKwamboka0/family-tv/releases/latest/download/familytv-promo.mp4)
+
+**[Watch the 30-second tour](https://github.com/NaomiKwamboka0/family-tv/releases/latest/download/familytv-promo.mp4)**
+(drawn by the app itself; the colour bars stand in for the stations' live pictures)
+
+## Download
+
+From the [latest release](https://github.com/NaomiKwamboka0/family-tv/releases/latest):
+
+| Your computer | Download |
+|---|---|
+| Windows 10 or 11 | [FamilyTV-Setup-1.0.0.exe](https://github.com/NaomiKwamboka0/family-tv/releases/latest/download/FamilyTV-Setup-1.0.0.exe) (installer) or [FamilyTV-1.0.0-windows.zip](https://github.com/NaomiKwamboka0/family-tv/releases/latest/download/FamilyTV-1.0.0-windows.zip) (no install) |
+| Mac with Apple silicon (M1 or newer), macOS 15 or newer | [FamilyTV-1.0.0-macos.dmg](https://github.com/NaomiKwamboka0/family-tv/releases/latest/download/FamilyTV-1.0.0-macos.dmg) |
+
+Family TV is not signed by a company yet, so the first start asks once. **Windows:** "Windows
+protected your PC" → More info → Run anyway. **Mac:** "cannot check it for malicious software" →
+Done, then System Settings → Privacy & Security → Open Anyway.
 
 ![For you](docs/screens/01-for-you.png)
 
@@ -44,17 +62,32 @@ brew install sdl2 mpv pkgconf   # mpv brings libmpv, yt-dlp and deno
 make            # tests (sanitizers), font check, scripted walks, headless window check
 make run        # Family TV in a window
 make screens    # draw every screen to docs/screens/*.png
+make promo      # the 30-second advert: out/promo/familytv-promo.mp4 (needs ffmpeg)
 make bench      # milliseconds per frame per screen
 ```
 
-Windows zip, cross-built on the Mac:
+Windows zip and installer, cross-built on the Mac:
 
 ```sh
-brew install mingw-w64 sevenzip
+brew install mingw-w64 sevenzip makensis
 make win-deps   # SDL2, libmpv, yt-dlp, deno: pinned versions, SHA-256 checked (tools/win-deps.lock)
-make win-zip    # out/win/FamilyTV-<commit>.zip: unzip on the laptop, run FamilyTV.exe
+make win-zip    # out/win/FamilyTV-<version>-windows.zip: unzip on the laptop, run FamilyTV.exe
+make win-setup  # out/win/FamilyTV-Setup-<version>.exe: installer with shortcuts and an uninstaller
 make win-test   # out/win/test-core.exe: the unit tests as a Windows program
 ```
+
+Mac app (Apple silicon), with Homebrew's libraries copied inside:
+
+```sh
+brew install dylibbundler
+make mac-deps   # yt-dlp and deno for macOS: pinned, SHA-256 checked (tools/mac-deps.lock)
+make mac-dmg    # out/mac/FamilyTV-<version>-macos.dmg; mac-check proves nothing comes from Homebrew
+```
+
+`make release` builds all three into `out/release` with `SHA256SUMS.txt`. Pushing a tag such as
+`v1.0.0` (matching `VERSION` in the Makefile) makes GitHub build them, install and start each on a
+clean Windows and Mac machine, and publish the release with the video
+([.github/workflows/release.yml](.github/workflows/release.yml)).
 
 Native Windows build ([MSYS2](https://www.msys2.org), UCRT64 shell), for checking on the laptop
 itself:
@@ -77,9 +110,9 @@ watching), `--verbose` (player messages on the terminal), `--data DIR`, `--fulls
 | `media/` | player interface, libmpv player, stub player, error classifier |
 | `services/` | settings (with PIN), play time, channels, viewer prefs, translations, session |
 | `games/` | Family Racer, Penalty Cup, Block Garden, checksummed saves |
-| `sim/` | the program: main loop, SDL window, terminal frontend, screenshot and bench tools |
+| `sim/` | the program: main loop, SDL window, terminal frontend, screenshot, bench and advert tools |
 | `platform/` | randomness, clocks and files on macOS and Windows |
-| `packaging/windows/` | manifest, icon, README and licence notices for the zip |
-| `tools/` | font and icon bakers, channel checker, Windows dependency fetcher |
+| `packaging/` | Windows manifest, icon and installer; macOS Info.plist and icon; READMEs, licence notices, release notes |
+| `tools/` | font and icon bakers, channel checker, dependency fetcher |
 
 The LG TV version (hardware evidence, probes, gate checks) is at git tag `lg-tv-final`.

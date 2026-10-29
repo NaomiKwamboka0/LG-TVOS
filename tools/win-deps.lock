@@ -1,7 +1,7 @@
 # Windows build dependencies: name|version|url|sha256
 # SHA-256 values come from each GitHub release's published asset digest
 # (and yt-dlp's / deno's own checksum files), recorded 2026-10-28.
-# tools/fetch-win-deps.sh refuses any download that does not match.
+# tools/fetch-deps.sh refuses any download that does not match.
 sdl2|2.32.10|https://github.com/libsdl-org/SDL/releases/download/release-2.32.10/SDL2-devel-2.32.10-mingw.tar.gz|83a5d74012311edc3c0d40ea6faecbe57ad692aa033fa5dc273cc937e3938ff2
 # Baseline x86-64 build, not "-v3": v3 needs AVX2, which many budget laptops lack.
 mpv|20261021-git-e471496c56|https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20261021/mpv-dev-x86_64-20261021-git-e471496c56.7z|efc719eff3dc5954b4a5efc800632808bcec01cc9034940dd14e5eb7fe9ea633

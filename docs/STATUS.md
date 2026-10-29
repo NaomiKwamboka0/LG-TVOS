@@ -19,6 +19,23 @@ what has been checked, where, and what has not.
   Switch were not live then and stream on a schedule.
 - Settings written before live TV (schema 1) load with PIN and child profile intact (unit test).
 
+## The Mac app (checked 2026-10-30 on the development Mac)
+
+- `make mac-dmg` makes `FamilyTV-1.0.0-macos.dmg` (about 106 MB): 52 libraries copied out of
+  Homebrew into the app, signed ad hoc, nothing built for newer than macOS 15.
+- Started from inside the mounted .dmg; `DYLD_PRINT_LIBRARIES` shows nothing loaded from Homebrew,
+  SDL 3 included (sdl2-compat opens it at run time).
+- Citizen TV played live through the app's own libmpv, yt-dlp and deno with Homebrew off `PATH`.
+- Not yet tried on a Mac that never had Homebrew, nor through Gatekeeper's first-start prompt after
+  a real download. The release workflow's clean-machine test covers the first.
+
+## Release workflow (not run yet)
+
+`.github/workflows/release.yml` builds the Windows installer, zip, Mac .dmg and advert on a macOS 15
+runner, then installs the Setup.exe silently on a clean Windows machine, starts it with scripted
+keys (SDL dummy video driver), uninstalls it, and starts the Mac app from the .dmg on a clean Mac.
+The first run will be the first time Family TV runs on Windows at all.
+
 ## Built but not yet run on Windows
 
 `make win-zip` cross-compiles a Windows 10/11 program and the import table shows only Windows' own
@@ -56,6 +73,10 @@ If anything fails, send `%APPDATA%\FamilyTV\FamilyTV\familytv.log`.
   or another network helps. Signing in is not supported.
 - Channels take 10-15 s to start: yt-dlp needs about 4 s and opening the separate sound and picture
   streams the rest. Looking up neighbouring channels ahead of time could shorten zapping; not done.
-- The Windows zip is about 110 MB (libmpv, deno and yt-dlp). `FamilyTV.exe` is not code-signed.
+- The Windows zip is about 110 MB and the installer about 90 MB (libmpv, deno and yt-dlp).
+  `FamilyTV.exe` and the installer are not code-signed (SmartScreen asks once).
 - The Kiswahili text is a first draft for the family to correct.
-- libmpv is GPL: the zip is for the family's own use (see `LICENSES/NOTICE.txt` in it).
+- libmpv is GPL, so Family TV is shared under GPL-3.0 with its source on GitHub; the installers carry
+  the licence notices (`LICENSES/NOTICE.txt`).
+- The Mac app needs Apple silicon and macOS 15 or newer (the Homebrew libraries inside it); it is
+  signed ad hoc, not notarised, so the first start goes through Privacy & Security > Open Anyway.

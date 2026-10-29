@@ -1,7 +1,8 @@
-/* Renders the Family TV app icon (the Live TV tile) at the usual Windows
- * icon sizes and writes them as raw RGBA to stdout, one block per size:
- * a 4-byte little-endian size, then size*size*4 bytes. tools/mkico.py packs
- * them into packaging/windows/familytv.ico (make icon).
+/* Renders the Family TV app icon (the Live TV tile) and writes it as raw
+ * RGBA to stdout, one block per size: a 4-byte little-endian size, then
+ * size*size*4 bytes. Sizes come from the arguments (default: the Windows
+ * ones). tools/mkico.py packs them into packaging/windows/familytv.ico and
+ * tools/mkicns.py into an icon set for macOS (make icon).
  *
  * The canvas always writes opaque pixels, so each size is drawn twice, on
  * black and on white; the difference gives the coverage (alpha). */
@@ -19,16 +20,23 @@ static void draw(ft_canvas *c, int size, ft_color bg)
     art_tile(c, r, size / 5, ART_LIVE_TV, 1, NULL);
 }
 
-int main(void)
+#define MAX_SIZE 1024
+
+int main(int argc, char **argv)
 {
-    static const int sizes[] = {256, 48, 32, 24, 16};
-    static uint32_t black[256 * 256], white[256 * 256];
-    static unsigned char rgba[256 * 256 * 4];
-    size_t k;
-    for (k = 0; k < sizeof sizes / sizeof sizes[0]; k++) {
-        int n = sizes[k], i;
+    static const int windows_sizes[] = {256, 48, 32, 24, 16};
+    static uint32_t black[MAX_SIZE * MAX_SIZE], white[MAX_SIZE * MAX_SIZE];
+    static unsigned char rgba[MAX_SIZE * MAX_SIZE * 4];
+    int k, count = argc > 1 ? argc - 1 : (int)(sizeof windows_sizes / sizeof windows_sizes[0]);
+    for (k = 0; k < count; k++) {
+        int n = argc > 1 ? atoi(argv[k + 1]) : windows_sizes[k], i;
+        if (n < 16 || n > MAX_SIZE)
+            continue;
         ft_canvas cb, cw;
-        unsigned char hdr[4] = {(unsigned char)n, (unsigned char)(n >> 8), 0, 0};
+        unsigned char hdr[4];
+        hdr[0] = (unsigned char)n;
+        hdr[1] = (unsigned char)(n >> 8);
+        hdr[2] = hdr[3] = 0;
         canvas_init(&cb, black, n, n, n);
         canvas_init(&cw, white, n, n, n);
         draw(&cb, n, 0xFF000000u);
