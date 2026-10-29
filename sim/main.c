@@ -16,6 +16,7 @@
 #include "prefs.h"
 #include "racer.h"
 #include "sports.h"
+#include "youtube.h"
 #include "font.h"
 #include "view.h"
 #include "frontend.h"
@@ -87,6 +88,38 @@ static ft_key next_key(int frame_ms)
         return script_next();
     }
     return fe->poll(frame_ms, &quit_req);
+}
+
+/* The games know the remote's keys: a click is OK, the rest of the mouse
+ * is ignored. */
+static ft_key game_key(ft_key k)
+{
+    return k == FT_CLICK ? FT_OK : k == FT_POINT || k == FT_WHEEL_UP || k == FT_WHEEL_DOWN || k == FT_TEXT ? FT_NONE : k;
+}
+
+/* Home screen and lists: hovering moves the focus to what the pointer is
+ * on, a click chooses it (a tab or a PIN digit is only selected). Returns
+ * the key for shell_key, or FT_NONE after a hover (which still redraws). */
+static ft_key pointer_key(shell *s, ft_key k)
+{
+    int x, y;
+    view_hit h;
+    if (k != FT_POINT && k != FT_CLICK)
+        return k;
+    if (!fe->pointer || !fe->pointer(&x, &y))
+        return FT_NONE;
+    h = view_shell_hit(s, x, y);
+    if (h.kind == HIT_NONE || (k == FT_POINT && !h.whole))
+        return FT_NONE;
+    if (h.kind == HIT_TOP)
+        shell_focus_top(s, h.col);
+    else if (h.kind == HIT_CARD)
+        shell_focus_card(s, h.row, h.col);
+    else
+        shell_focus_item(s, h.col);
+    if (k == FT_POINT || h.kind == HIT_PIN || (h.kind == HIT_TOP && h.col < TAB_COUNT))
+        return FT_NONE;
+    return FT_OK;
 }
 
 /* ---- clocks ----------------------------------------------------------- */
@@ -192,7 +225,7 @@ static void run_racer(session *ss, shell *s)
     racer_init(&r, next_seed(), RACER_EASY, 0);
     meter_start(&meter);
     while (r.state != RACER_EXITED && !quit_req) {
-        ft_key k = next_key(FRAME_MS);
+        ft_key k = game_key(next_key(FRAME_MS));
         if (k != FT_NONE)
             racer_key(&r, k);
         racer_tick(&r);
@@ -243,7 +276,7 @@ static void run_penalty(session *ss, shell *s)
 
     meter_start(&meter);
     while (p.phase != PEN_EXITED && !quit_req) {
-        ft_key k = next_key(FRAME_MS);
+        ft_key k = game_key(next_key(FRAME_MS));
         if (k != FT_NONE) {
             penalty_key(&p, k);
             status[0] = '\0';
@@ -293,7 +326,7 @@ static void run_garden(session *ss, shell *s)
     fe->garden(&g, (ft_lang)ss->settings.lang, status);
     meter_start(&meter);
     while (g.mode != GM_EXITED && !quit_req) {
-        ft_key k = next_key(FRAME_MS);
+        ft_key k = game_key(next_key(FRAME_MS));
         garden_action a;
         if (!meter_step(&meter, g.mode == GM_EDIT || g.mode == GM_PALETTE, ss, s)) {
             if (g.dirty)
@@ -330,11 +363,50 @@ static void save_prefs(void)
     prefs_save(&prefs, data_path(path, sizeof path, "player.sav"));
 }
 
-/* Sports channels play their live match itself when the Sports page found
+/* "Live football now" as a channel list, so zapping works as on any list. */
+static channel_list found_list;
+
+static const channel_list *found_channels(const shell *s)
+{
+    int i;
+    memset(&found_list, 0, sizeof found_list);
+    for (i = 0; i < s->cfg.nfound && i < CH_MAX; i++) {
+        channel *ch = &found_list.ch[found_list.n++];
+        ch->number = i + 1;
+        snprintf(ch->name, sizeof ch->name, "%s", s->cfg.found[i].by);
+        snprintf(ch->url, sizeof ch->url, "https://www.youtube.com/watch?v=%s", s->cfg.found[i].video_id);
+        ch->accent = FT_RGB(0x1C7A3C);
+        ch->group = CH_SPORTS;
+    }
+    return &found_list;
+}
+
+/* A YouTube row as a channel list: Up and Down go to the next video. */
+static const channel_list *video_channels(const shell *s, int index, int *start)
+{
+    int feed = index / YT_FEED_MAX, i;
+    memset(&found_list, 0, sizeof found_list);
+    for (i = 0; i < s->cfg.nvideos[feed]; i++) {
+        const yt_video *v = &s->cfg.videos[feed * YT_FEED_MAX + i];
+        channel *ch = &found_list.ch[found_list.n++];
+        ch->number = i + 1;
+        snprintf(ch->name, sizeof ch->name, "%s", v->title);
+        yt_watch_url(v, ch->url, sizeof ch->url);
+        ch->accent = FT_RGB(0xC4122F);
+    }
+    *start = index % YT_FEED_MAX;
+    return &found_list;
+}
+
+/* Sports channels play their live match itself when the Sports tab found
  * one; the channel lists remember the last channel for the banner. */
 static void tune(shell *s, const channel_list *chs, int index)
 {
     const channel *ch = &chs->ch[index];
+    if (chs == &found_list) { /* found by search: the address is the stream itself */
+        player_open(pl, ch->url);
+        return;
+    }
     if (chs == &s->cfg.sports) {
         char url[CH_URL_MAX];
         player_open(pl, sport_watch_url(&s->cfg.sport[index], ch->url, url, sizeof url));
@@ -372,6 +444,18 @@ static void run_live(session *ss, shell *s, const channel_list *chs, int index)
         uint64_t now = loop_now();
         done = live_apply(s, chs, live_tick(&l, (int)(now - last)));
         last = now;
+        if (k == FT_CLICK && l.panel_open) { /* a click on the channel list plays that channel */
+            int x, y, row = fe->pointer && fe->pointer(&x, &y) ? view_live_hit(&l, chs->n, x, y) : -1;
+            if (row < 0)
+                k = FT_NONE;
+            else
+                l.panel_item = row;
+        } else if (k == FT_POINT && l.panel_open) { /* hovering the list moves its focus */
+            int x, y, row = fe->pointer && fe->pointer(&x, &y) ? view_live_hit(&l, chs->n, x, y) : -1;
+            if (row >= 0)
+                l.panel_item = row;
+            k = FT_NONE;
+        }
         if (k != FT_NONE)
             done = live_apply(s, chs, live_key(&l, k, player_get(pl)->state == PLAYER_ERROR)) || done;
         player_pump(pl, now);
@@ -431,18 +515,29 @@ static player *make_player(int want_stub, const char *ytdl_path, int verbose)
     return p ? p : player_create_unavailable(&pc);
 }
 
-/* ---- Sports page ----------------------------------------------------------- */
+/* ---- Sports tab ------------------------------------------------------------ */
 
 #define PROBES_AT_ONCE 4
 
 static uint64_t sports_checked_ms;
-static int probe_next, probes_running;
+static int probe_next, probes_running, searches_left;
+static sport_found found_next[SPORT_FOUND_MAX]; /* this round's search results, shown when all are in */
+static int nfound_next;
 
+/* The live football searches go first: they take longest. */
 static void start_probes(shell *s)
 {
-    while (probes_running < PROBES_AT_ONCE && probe_next < s->cfg.sports.n) {
-        int i = probe_next++;
+    while (probes_running < PROBES_AT_ONCE && probe_next < SPORT_SEARCHES + s->cfg.sports.n) {
+        int next = probe_next++, i = next - SPORT_SEARCHES;
         char page[CH_URL_MAX + 8];
+        if (next < SPORT_SEARCHES) {
+            if (player_probe(pl, PLAYER_SEARCH_TAG + next, sport_search_url(next, page, sizeof page),
+                             SPORT_SEARCH_FORMAT, SPORT_SEARCH_ITEMS) == 0)
+                probes_running++;
+            else
+                searches_left--;
+            continue;
+        }
         if (!sport_streams_url(s->cfg.sports.ch[i].url, page, sizeof page) ||
             player_probe(pl, i, page, SPORT_PRINT_FORMAT, 4) != 0) {
             s->cfg.sport[i].state = SPORT_UNKNOWN;
@@ -453,8 +548,8 @@ static void start_probes(shell *s)
     }
 }
 
-/* Asks every sports channel what it is streaming, unless it was asked
- * within the last few minutes. */
+/* Asks every sports channel what it is streaming and searches for live
+ * football, unless that was done within the last few minutes. */
 static void sports_refresh(shell *s)
 {
     uint64_t now = loop_now();
@@ -463,18 +558,64 @@ static void sports_refresh(shell *s)
         return;
     sports_checked_ms = now;
     probe_next = 0;
+    searches_left = SPORT_SEARCHES;
+    nfound_next = 0;
+    s->cfg.searching = 1;
     for (i = 0; i < s->cfg.sports.n; i++)
         s->cfg.sport[i].state = SPORT_CHECKING;
     start_probes(s);
 }
 
-/* Returns 1 if anything on the Sports page changed. */
+/* ---- YouTube tab ----------------------------------------------------------- */
+
+#define YT_TAG 800 /* probe tags YT_TAG + feed */
+
+static uint64_t yt_checked_ms;
+static int yt_running;
+
+static void yt_lookup(shell *s, int feed)
+{
+    char url[128];
+    if (!yt_feed_url(feed, s->cfg.yt_query, url, sizeof url) ||
+        player_probe(pl, YT_TAG + feed, url, YT_PRINT_FORMAT, YT_FEED_MAX) != 0) {
+        s->cfg.yt_loading &= ~(1u << feed);
+        return;
+    }
+    s->cfg.yt_loading |= 1u << feed;
+    yt_running++;
+}
+
+/* The ready-made rows, when the tab opens and every so often after. */
+static void yt_refresh(shell *s)
+{
+    uint64_t now = loop_now();
+    int f;
+    if (s->cfg.profile != PROFILE_PARENT || (yt_checked_ms && now - yt_checked_ms < YT_FRESH_MS))
+        return;
+    yt_checked_ms = now;
+    for (f = 1; f < YT_FEEDS; f++)
+        yt_lookup(s, f);
+}
+
+/* Returns 1 if anything on the Sports or YouTube tab changed. */
 static int sports_collect(shell *s)
 {
     player_probe_result r;
     int changed = 0;
     while (player_probe_next(pl, &r)) {
-        if (r.tag >= 0 && r.tag < s->cfg.sports.n) {
+        if (r.tag >= YT_TAG && r.tag < YT_TAG + YT_FEEDS) {
+            int f = r.tag - YT_TAG;
+            s->cfg.nvideos[f] = r.ok ? yt_parse(r.out, &s->cfg.videos[f * YT_FEED_MAX], YT_FEED_MAX) : 0;
+            s->cfg.yt_loading &= ~(1u << f);
+            yt_running = yt_running > 0 ? yt_running - 1 : 0;
+            changed = 1;
+            continue;
+        }
+        if (r.tag >= PLAYER_SEARCH_TAG) {
+            if (r.ok)
+                nfound_next = sport_add_found(found_next, nfound_next, r.out);
+            searches_left--;
+        } else if (r.tag >= 0 && r.tag < s->cfg.sports.n) {
             if (r.ok)
                 sport_parse(r.out, &s->cfg.sport[r.tag]);
             else
@@ -485,6 +626,12 @@ static int sports_collect(shell *s)
     }
     if (changed)
         start_probes(s);
+    if (s->cfg.searching && searches_left <= 0) { /* all searches in: show them at once */
+        memcpy(s->cfg.found, found_next, sizeof found_next);
+        s->cfg.nfound = nfound_next;
+        s->cfg.searching = 0;
+        changed = 1;
+    }
     return changed;
 }
 
@@ -616,25 +763,40 @@ int main(int argc, char **argv)
     while (!quit_req) {
         ft_key k;
         int r, again, wait;
-        if (s.screen == SCR_SPORTS)
+        if (s.screen == SCR_HOME && s.tab == TAB_SPORTS)
             sports_refresh(&s);
+        if (s.screen == SCR_HOME && s.tab == TAB_YOUTUBE)
+            yt_refresh(&s);
+        if (fe->text_mode)
+            fe->text_mode(s.screen == SCR_KEYBOARD ? 2 : s.screen == SCR_HOME && s.tab == TAB_YOUTUBE ? 1 : 0);
         again = fe->shell(&s);
         /* Sports answers wake the loop through the player (the stub needs a nudge). */
-        wait = probes_running > 0 ? 100 : ms_to_next_minute();
+        wait = probes_running > 0 || yt_running > 0 ? 100 : ms_to_next_minute();
         k = next_key(again > 0 && again < wait ? again : wait);
         player_pump(pl, loop_now());
         sports_collect(&s);
+        k = pointer_key(&s, k);
         if (k == FT_NONE)
-            continue; /* redraw: the clock moved on, or sports news */
-        r = session_dispatch(&ss, &s, shell_key(&s, k));
+            continue; /* redraw: the clock moved on, sports news, or the pointer moved */
+        r = session_dispatch(&ss, &s, k == FT_TEXT && fe->typed ? shell_type(&s, fe->typed()) : shell_key(&s, k));
         if (r == GAME_RACER)
             run_racer(&ss, &s);
         else if (r == GAME_PENALTY)
             run_penalty(&ss, &s);
         else if (r == GAME_GARDEN)
             run_garden(&ss, &s);
-        else if (r == SESSION_WATCH)
-            run_live(&ss, &s, ss.watch_sports ? &s.cfg.sports : &s.cfg.channels, ss.watch_channel);
+        else if (r == SESSION_YT_SEARCH)
+            yt_lookup(&s, 0);
+        else if (r == SESSION_WATCH && ss.watch_list == WATCH_VIDEO) {
+            int start;
+            const channel_list *row = video_channels(&s, ss.watch_channel, &start);
+            run_live(&ss, &s, row, start);
+        } else if (r == SESSION_WATCH)
+            run_live(&ss, &s,
+                     ss.watch_list == WATCH_FOUND    ? found_channels(&s)
+                     : ss.watch_list == WATCH_SPORTS ? &s.cfg.sports
+                                                     : &s.cfg.channels,
+                     ss.watch_channel);
         else if (r == SESSION_OPEN_APP)
             snprintf(s.status, sizeof s.status, "%s",
                      tr(s.cfg.lang, fe->open_url(shell_app_url(ss.open_app)) == 0 ? STR_APP_OPENED : STR_UNAVAILABLE));

@@ -217,9 +217,35 @@ int session_dispatch(session *ss, shell *s, shell_action a)
         if (a.arg < 0 || a.arg >= l->n)
             break;
         ss->watch_channel = a.arg;
-        ss->watch_sports = a.act == ACT_PLAY_SPORT;
+        ss->watch_list = a.act == ACT_PLAY_SPORT ? WATCH_SPORTS : WATCH_TV;
         return SESSION_WATCH;
     }
+    case ACT_PLAY_FOUND:
+        /* Streams found by search are not vetted: not from the child profile. */
+        if (s->cfg.profile != PROFILE_PARENT) {
+            say(ss, s, STR_ASK_PARENT);
+            break;
+        }
+        if (a.arg < 0 || a.arg >= s->cfg.nfound)
+            break;
+        ss->watch_channel = a.arg;
+        ss->watch_list = WATCH_FOUND;
+        return SESSION_WATCH;
+    case ACT_PLAY_VIDEO:
+    case ACT_YT_SEARCH:
+        /* YouTube reaches everything: not from the child profile. */
+        if (s->cfg.profile != PROFILE_PARENT) {
+            say(ss, s, STR_ASK_PARENT);
+            break;
+        }
+        if (a.act == ACT_YT_SEARCH)
+            return SESSION_YT_SEARCH;
+        if (a.arg < 0 || a.arg >= YT_FEEDS * YT_FEED_MAX ||
+            a.arg % YT_FEED_MAX >= s->cfg.nvideos[a.arg / YT_FEED_MAX])
+            break;
+        ss->watch_channel = a.arg;
+        ss->watch_list = WATCH_VIDEO;
+        return SESSION_WATCH;
     case ACT_OPEN_APP:
         /* A browser reaches the whole internet: not from the child profile. */
         if (s->cfg.profile != PROFILE_PARENT || a.arg < 0 || a.arg >= APP_COUNT) {

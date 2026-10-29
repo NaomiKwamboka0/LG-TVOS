@@ -7,6 +7,9 @@
  *   Left/Right   volume
  *   OK           channel list panel; on an error card, try again
  *   Back         close the panel, else go home (the stream stops)
+ * and the mouse: moving it shows the banner, the wheel is volume (or
+ * scrolls the open panel), a click is OK (on the panel, the caller first
+ * points panel_item at the clicked row).
  * Pure state machine: the caller owns the player and the clock. */
 
 #include "common.h"

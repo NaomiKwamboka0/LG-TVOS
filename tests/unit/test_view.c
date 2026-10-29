@@ -289,7 +289,7 @@ static void test_list_scrolls_to_focus(void)
     shell_open_settings(&s);
     s.item = 8; /* ninth item: needs scrolling */
     view_shell(&c, &s, "20:01");
-    CHECK(canvas_get(&c, last.x + last.w - 8, last.y + 4) == COL_FOCUS_BG);
+    CHECK((canvas_get(&c, last.x + last.w - 12, last.y + last.h / 2) & 0xFF) > 0xC8); /* the light focused slab */
     CHECK(last.y + last.h < 620); /* rows stay clear of the status toast */
 }
 
@@ -314,7 +314,11 @@ static void test_all_views_all_states(void)
         base(&cfg);
         cfg.lang = (ft_lang)lang;
         cfg.channels.n = lang ? cfg.channels.n : 0; /* also cover "no channels" */
-        for (scr = SCR_HOME; scr <= SCR_SPORTS; scr++)
+        cfg.nfound = lang; /* and the Sports tab with and without search results */
+        snprintf(cfg.found[0].title, sizeof cfg.found[0].title, "A vs B | a long title that has to wrap and be cut");
+        cfg.found[0].viewers = 12345;
+        cfg.searching = !lang;
+        for (scr = SCR_HOME; scr <= SCR_PIN; scr++)
             for (f = 0; f < 3 * TAB_COUNT; f++) {
                 shell_init(&s, &cfg);
                 s.screen = (shell_screen)scr;
@@ -404,8 +408,67 @@ static void test_motion_and_startup(void)
     CHECK(canvas_get(&c, 640, 300) != 0xFF000000u);
 }
 
+/* The mouse: what is under the pointer, and the focused card turning
+ * toward it in 3D without drawing outside the screen. */
+static void test_mouse_hits_and_turn(void)
+{
+    ft_canvas c;
+    shell_config cfg;
+    static shell s;
+    ui_motion m;
+    ui_targets t;
+    view_hit h;
+    ft_rect r;
+    live l;
+    canvas_init(&c, screen, VIEW_W, VIEW_H, VIEW_W);
+    base(&cfg);
+    shell_init(&s, &cfg);
+    r = view_top_rect(&s, TAB_SPORTS);
+    h = view_shell_hit(&s, r.x + 5, r.y + 5);
+    CHECK(h.kind == HIT_TOP && h.col == TAB_SPORTS);
+    r = view_home_card_rect(&s, 1, 2);
+    h = view_shell_hit(&s, r.x + r.w / 2, r.y + r.h / 2);
+    CHECK(h.kind == HIT_CARD && h.row == 1 && h.col == 2 && h.whole);
+    r = view_home_card_rect(&s, 1, 4); /* peeks in at the right edge */
+    h = view_shell_hit(&s, r.x + 4, r.y + r.h / 2);
+    CHECK(h.kind == HIT_CARD && h.col == 4 && !h.whole);
+    CHECK(view_shell_hit(&s, 4, 690).kind == HIT_NONE);
+    s.screen = SCR_MORE;
+    r = view_list_row_rect(1);
+    h = view_shell_hit(&s, r.x + 10, r.y + 10);
+    CHECK(h.kind == HIT_ITEM && h.col == 1);
+
+    live_init(&l, cfg.channels.n, 0, 50);
+    CHECK(view_live_hit(&l, cfg.channels.n, 100, 200) == -1); /* no list open */
+    live_key(&l, FT_CLICK, 0);
+    CHECK(l.panel_open);
+    r = view_live_panel_row_rect(2);
+    CHECK(view_live_hit(&l, cfg.channels.n, r.x + 10, r.y + 10) == 2);
+    live_key(&l, FT_WHEEL_DOWN, 0);
+    CHECK(l.panel_item == 1);
+    l.panel_open = 0;
+    CHECK(live_key(&l, FT_WHEEL_UP, 0).act == LIVE_ACT_VOLUME && l.volume == 55);
+    l.banner_ms = 0;
+    live_key(&l, FT_POINT, 0);
+    CHECK(l.banner_ms > 0);
+
+    s.screen = SCR_HOME; /* turned all the way, at the screen's edge too */
+    memset(&m, 0, sizeof m);
+    for (s.col[1] = 0; s.col[1] < cfg.channels.n; s.col[1] += 5) {
+        s.row = 1;
+        view_home_targets(&s, &t);
+        t.tilt_x = s.col[1] % 2 ? 256 : -256;
+        t.tilt_y = 256;
+        motion_step(&m, &t, s.tab, 1000);
+        motion_step(&m, &t, s.tab, 1000);
+        CHECK(m.now.tilt_x == t.tilt_x && m.now.tilt_y == 256);
+        view_shell_motion(&c, &s, "20:01", &m);
+    }
+}
+
 void run_view_tests(void)
 {
+    test_mouse_hits_and_turn();
     test_motion_and_startup();
     test_wide_glow();
     test_scaled_canvas();

@@ -18,7 +18,7 @@ typedef struct {
     int unavailable;
 #define STUB_PROBES 16
     int pending[STUB_PROBES], npending;
-    char pending_out[STUB_PROBES][256];
+    char pending_out[STUB_PROBES][512];
     uint32_t frame, drawn; /* drawn: frame + 1 last put in px, 0 = none */
 } stub_player;
 
@@ -126,13 +126,17 @@ static int stub_render(player *p, uint32_t *px, int w, int h, int stride)
 static int stub_probe(player *p, int tag, const char *page_url, const char *print_format, int items)
 {
     stub_player *s = (stub_player *)p;
-    char out[256];
+    char out[512];
     (void)page_url;
     (void)print_format;
     (void)items;
     if (s->unavailable)
         return -1;
-    if (tag == 0)
+    if (tag >= PLAYER_SEARCH_TAG) /* a live search: one match, one game-engine fake */
+        snprintf(out, sizeof out, "is_live\tstubFind%02d\t420\tStub Sports\tHome FC vs Away FC | Stub League\n"
+                                  "is_live\tstubFake%02d\t900\tStub Games\tHome vs Away | Video Game Simulation\n",
+                 tag - PLAYER_SEARCH_TAG, tag - PLAYER_SEARCH_TAG);
+    else if (tag == 0)
         snprintf(out, sizeof out, "is_live\tstubLive%02d\tLIVE | Home v Away | Stub Cup Final\n", tag);
     else if (tag == 1)
         snprintf(out, sizeof out, "is_upcoming\tstubNext%02d\tSemi-final | Stub League\n", tag);

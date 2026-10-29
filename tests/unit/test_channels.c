@@ -4,6 +4,7 @@
 
 #include "channels.h"
 #include "sports.h"
+#include "youtube.h"
 
 #include "check.h"
 
@@ -169,8 +170,71 @@ static void test_sports_parse_and_order(void)
     CHECK(sport_streams_url("https://example.com/match.m3u8", url, sizeof url) == NULL);
 }
 
+/* Live football search: matches and watch-alongs stay, busiest first;
+ * American football, school games from look-alike channels, game-engine
+ * fakes and talk shows go. */
+static void test_sports_search_filter(void)
+{
+    sport_found f[SPORT_FOUND_MAX];
+    char url[256];
+    int n;
+    CHECK(sport_is_football("Everton vs Newcastle LIVE Watch Along | Carabao Cup", "Matchday Unfiltered"));
+    CHECK(sport_is_football("Al Nassr vs Al Kholood Live: Saudi Pro League | Watchalong & Live Score", "Blink Sports"));
+    CHECK(!sport_is_football("Green Bay Packers VS Carolina Panthers | LIVE NFL 2026", "yuigot"));
+    CHECK(!sport_is_football("Santa Fe Catholic vs Lakeland | LIVE Soccer High School @Florida", "ASDSportSavvyLive 38"));
+    CHECK(!sport_is_football("Vinalhaven Vs. Telstar | LIVE Soccer", "PAWSportDayScoreboard"));
+    CHECK(!sport_is_football("LIVE - Everton vs Newcastle | Full Match | Video Game Simulation", "BOB TUBEE"));
+    CHECK(!sport_is_football("Nepal U15 vs New Zealand U15 | eFootball Gameplay", "Football Live Stand"));
+    CHECK(!sport_is_football("LIVE: talkSPORT 24/7", "talkSPORT"));
+    CHECK(!sport_is_football("CHELSEA v MANCHESTER UNITED PREVIEW", "CB1MILLI"));
+    CHECK(!sport_is_football("Barcelona Training Session", "APT Sports")); /* no match in it */
+    n = sport_add_found(f, 0,
+                        "is_live\tA1\t99\tSmall Club\tHome FC vs Away FC\n"
+                        "is_live\tB2\tNA\tQuiet Club\tNorth v South | League\n"
+                        "was_live\tC3\t5000\tOld\tYesterday vs Today\n"
+                        "is_live\tD4\t1200\tBig Club\t\xF0\x9F\x94\xB4 LIVE | Derby: Reds vs Blues watch along\n"
+                        "is_live\tE5\t8000\tyuigot\tPackers vs Panthers | LIVE NFL\n");
+    CHECK(n == 3 && strcmp(f[0].video_id, "D4") == 0 && f[0].viewers == 1200);
+    CHECK(strcmp(f[0].title, "Derby: Reds vs Blues watch along") == 0 && strcmp(f[0].by, "Big Club") == 0);
+    CHECK(strcmp(f[1].video_id, "A1") == 0 && strcmp(f[2].video_id, "B2") == 0 && f[2].viewers == 0);
+    n = sport_add_found(f, n, "is_live\tA1\t99\tSmall Club\tHome FC vs Away FC\n"); /* the other search found it too */
+    CHECK(n == 3);
+    CHECK(strstr(sport_search_url(0, url, sizeof url), "youtube.com/results?search_query=") != NULL &&
+          strstr(url, "sp=EgJAAQ") != NULL);
+}
+
+/* YouTube: searches, answers and durations. */
+static void test_youtube_service(void)
+{
+    yt_video v[YT_FEED_MAX];
+    char out[128];
+    int n;
+    yt_clean_query(out, sizeof out, "  Harambee   stars! --rm -rf ");
+    CHECK(strcmp(out, "Harambee stars rm rf") == 0);
+    CHECK(yt_feed_url(0, "  ", out, sizeof out) == NULL); /* nothing to search for */
+    CHECK(strcmp(yt_feed_url(0, "gor mahia", out, sizeof out), "ytsearch10:gor mahia") == 0);
+    CHECK(strncmp(yt_feed_url(2, NULL, out, sizeof out), "ytsearch10:kenya", 16) == 0);
+    n = yt_parse("L8oG27lPVx4\t490\tNA\tMaisha TV Kenya\tKindiki rally\n"
+                 "gyp8Onb4vmk\tNA\tis_live\tCitizen TV Kenya\tCitizen TV Live:\n"
+                 "UPCOMING123\tNA\tis_upcoming\tSomeone\tLater\n"
+                 "broken line\n"
+                 "iRvdPxUzY_U\t4955\twas_live\tKenya News Channel\t\xF0\x9F\x94\xB4 LIVE - Rally\n",
+                 v, YT_FEED_MAX);
+    CHECK(n == 3 && v[0].seconds == 490 && !v[0].live && strcmp(v[0].by, "Maisha TV Kenya") == 0);
+    CHECK(v[1].live && v[1].seconds == 0 && strcmp(v[2].title, "Rally") == 0);
+    yt_duration(out, sizeof out, 490);
+    CHECK(strcmp(out, "8:10") == 0);
+    yt_duration(out, sizeof out, 4955);
+    CHECK(strcmp(out, "1:22:35") == 0);
+    yt_duration(out, sizeof out, 0);
+    CHECK(out[0] == '\0');
+    CHECK(strcmp(yt_watch_url(&v[0], out, sizeof out), "https://www.youtube.com/watch?v=L8oG27lPVx4") == 0);
+}
+
 void run_channel_tests(void)
 {
+    test_youtube_service();
+    test_sports_search_filter();
     test_channels_groups();
     test_sports_parse_and_order();
     test_channels_basic_and_sorted();

@@ -461,7 +461,8 @@ static uint32_t ramp(int d, int blur)
 #define SHADOW_MAX 8192 /* a full-width shadow or glow at 3x (4K) */
 static uint8_t shadow_fx[SHADOW_MAX];
 
-static void canvas_shadow_px(ft_canvas *c, ft_rect r, int blur, ft_color color)
+/* skip: physical pixels something opaque will cover next (w == 0: none). */
+static void canvas_shadow_px(ft_canvas *c, ft_rect r, int blur, ft_color color, ft_rect skip)
 {
     int x, y, bx, by, bw, bh;
     uint32_t a = color >> 24;
@@ -479,13 +480,17 @@ static void canvas_shadow_px(ft_canvas *c, ft_rect r, int blur, ft_color color)
     }
     for (y = 0; y < bh; y++) {
         uint32_t t = ramp(y, blur), b = ramp(bh - 1 - y, blur), fy = t < b ? t : b;
-        int py = by + y;
+        int py = by + y, hidden = skip.w > 0 && py >= skip.y && py < skip.y + skip.h;
         if (py < 0 || py >= c->h || fy == 0)
             continue;
         for (x = 0; x < bw; x++) {
             int px = bx + x;
             if (px < 0 || px >= c->w)
                 continue;
+            if (hidden && px >= skip.x && px < skip.x + skip.w) {
+                x = skip.x + skip.w - bx - 1; /* jump over the covered span */
+                continue;
+            }
             blend_px(&c->px[(long)py * c->stride + px], color, mul255(a, mul255(shadow_fx[x], fy)));
         }
     }
@@ -620,7 +625,13 @@ void canvas_polygon_in_circle(ft_canvas *c, const int *xy, int npoints, int cx, 
 
 void canvas_shadow(ft_canvas *c, ft_rect r, int blur, ft_color color)
 {
-    canvas_shadow_px(c, pr(c, r), pl(c, blur), color);
+    ft_rect none = {0, 0, 0, 0};
+    canvas_shadow_px(c, pr(c, r), pl(c, blur), color, none);
+}
+
+void canvas_shadow_under(ft_canvas *c, ft_rect r, int blur, ft_color color, ft_rect covered)
+{
+    canvas_shadow_px(c, pr(c, r), pl(c, blur), color, pr(c, covered));
 }
 
 void canvas_glow(ft_canvas *c, int cx, int cy, int rx, int ry, ft_color color)
@@ -779,6 +790,167 @@ void canvas_text_center(ft_canvas *c, const ft_font *f, ft_rect r, const char *t
 void canvas_text_right(ft_canvas *c, const ft_font *f, int right_x, int y, const char *text, ft_color color)
 {
     canvas_text(c, f, right_x - text_width(f, text), y, text, color);
+}
+
+int canvas_clip(const ft_canvas *c, ft_rect r, ft_canvas *out, int *ox, int *oy)
+{
+    int x0 = r.x < 0 ? 0 : r.x, y0 = r.y < 0 ? 0 : r.y;
+    int px0 = x0 * c->scale / 2, py0 = y0 * c->scale / 2;
+    int px1 = (r.x + r.w) * c->scale / 2, py1 = (r.y + r.h) * c->scale / 2;
+    if (px1 > c->w)
+        px1 = c->w;
+    if (py1 > c->h)
+        py1 = c->h;
+    if (px0 >= px1 || py0 >= py1)
+        return 0;
+    *out = *c;
+    out->px = c->px + (long)py0 * c->stride + px0;
+    out->w = px1 - px0;
+    out->h = py1 - py0;
+    *ox = x0;
+    *oy = y0;
+    return 1;
+}
+
+/* Small angles only: no maths library needed. */
+static double small_sin(double a)
+{
+    return a - a * a * a / 6 + a * a * a * a * a / 120;
+}
+
+static double small_cos(double a)
+{
+    return 1 - a * a / 2 + a * a * a * a / 24;
+}
+
+/* Coverage of a pixel at (x, y) by a w x h rounded rectangle: 0..256. */
+static int rounded_cover(double x, double y, int w, int h, int radius)
+{
+    double cx = x < radius ? radius : x > w - radius ? w - radius : x;
+    double cy = y < radius ? radius : y > h - radius ? h - radius : y;
+    double dx = x - cx, dy = y - cy, d, edge;
+    if (x < 0 || y < 0 || x > w || y > h)
+        return 0;
+    if (dx == 0 || dy == 0) { /* straight edges: distance to the border */
+        edge = x < y ? x : y;
+        if (w - x < edge)
+            edge = w - x;
+        if (h - y < edge)
+            edge = h - y;
+        return edge >= 1 ? 256 : (int)(edge * 256);
+    }
+    d = dx * dx + dy * dy;
+    if (d <= (radius - 1.0) * (radius - 1.0))
+        return 256;
+    if (d >= (double)radius * radius)
+        return 0;
+    /* within a pixel of the corner's arc: the distance decides, by Newton */
+    {
+        double r = radius - 0.5;
+        r = (r + d / r) / 2;
+        r = (r + d / r) / 2;
+        edge = radius - r;
+        return edge <= 0 ? 0 : (int)(edge * 256);
+    }
+}
+
+void canvas_turn(ft_canvas *c, const ft_canvas *src, int x, int y, int radius, int turn_x, int turn_y)
+{
+    double ax = turn_x / 1000.0, ay = turn_y / 1000.0, sx = small_sin(ax), cxs = small_cos(ax);
+    double sy = small_sin(ay), cys = small_cos(ay), w = src->w, h = src->h, dist = 2.6 * (w > h ? w : h);
+    double qx[4], qy[4], a, b, cc, d, e, f, g, hh, A, B, C, D, E, F, G, H, I;
+    int i, px, py, x0 = 1 << 30, y0 = 1 << 30, x1 = -(1 << 30), y1 = -(1 << 30);
+    /* The corners turned about the centre, then seen from dist away. */
+    for (i = 0; i < 4; i++) {
+        double u = (i == 1 || i == 2) ? w / 2 : -w / 2, v = i >= 2 ? h / 2 : -h / 2;
+        double x1r = u * cys, z1 = -u * sy;           /* about the vertical axis */
+        double y2 = v * cxs - z1 * sx, z2 = v * sx + z1 * cxs; /* about the horizontal axis */
+        double k = dist / (dist + z2);
+        qx[i] = x + w / 2 + x1r * k;
+        qy[i] = y + h / 2 + y2 * k;
+        if ((int)qx[i] < x0)
+            x0 = (int)qx[i];
+        if ((int)qy[i] < y0)
+            y0 = (int)qy[i];
+        if ((int)qx[i] + 1 > x1)
+            x1 = (int)qx[i] + 1;
+        if ((int)qy[i] + 1 > y1)
+            y1 = (int)qy[i] + 1;
+    }
+    { /* the unit square onto that quad (Heckbert), then inverted */
+        double sxq = qx[0] - qx[1] + qx[2] - qx[3], syq = qy[0] - qy[1] + qy[2] - qy[3];
+        double dx1 = qx[1] - qx[2], dx2 = qx[3] - qx[2], dy1 = qy[1] - qy[2], dy2 = qy[3] - qy[2];
+        double den = dx1 * dy2 - dx2 * dy1;
+        if (den == 0)
+            return;
+        g = (sxq * dy2 - dx2 * syq) / den;
+        hh = (dx1 * syq - sxq * dy1) / den;
+        a = qx[1] - qx[0] + g * qx[1];
+        b = qx[3] - qx[0] + hh * qx[3];
+        cc = qx[0];
+        d = qy[1] - qy[0] + g * qy[1];
+        e = qy[3] - qy[0] + hh * qy[3];
+        f = qy[0];
+        A = e - f * hh;
+        B = cc * hh - b;
+        C = b * f - cc * e;
+        D = f * g - d;
+        E = a - cc * g;
+        F = cc * d - a * f;
+        G = d * hh - e * g;
+        H = b * g - a * hh;
+        I = a * e - b * d;
+    }
+    if (x0 < 0)
+        x0 = 0;
+    if (y0 < 0)
+        y0 = 0;
+    if (x1 > c->w)
+        x1 = c->w;
+    if (y1 > c->h)
+        y1 = c->h;
+    for (py = y0; py < y1; py++) {
+        uint32_t *row = c->px + (long)py * c->stride;
+        for (px = x0; px < x1; px++) {
+            double fx = px + 0.5, fy = py + 0.5, q = G * fx + H * fy + I, u, v, su, sv;
+            int cover, ix, iy, tx, ty, ch;
+            uint32_t p00, p10, p01, p11, out = 0;
+            if (q == 0)
+                continue;
+            u = (A * fx + B * fy + C) / q;
+            v = (D * fx + E * fy + F) / q;
+            if (u < 0 || u > 1 || v < 0 || v > 1)
+                continue;
+            su = u * w;
+            sv = v * h;
+            cover = rounded_cover(su, sv, src->w, src->h, radius);
+            if (cover <= 0)
+                continue;
+            su -= 0.5;
+            sv -= 0.5;
+            ix = su < 0 ? 0 : (int)su;
+            iy = sv < 0 ? 0 : (int)sv;
+            if (ix > src->w - 2)
+                ix = src->w - 2;
+            if (iy > src->h - 2)
+                iy = src->h - 2;
+            tx = (int)((su - ix) * 256);
+            ty = (int)((sv - iy) * 256);
+            tx = tx < 0 ? 0 : tx > 256 ? 256 : tx;
+            ty = ty < 0 ? 0 : ty > 256 ? 256 : ty;
+            p00 = src->px[(long)iy * src->stride + ix];
+            p10 = src->px[(long)iy * src->stride + ix + 1];
+            p01 = src->px[(long)(iy + 1) * src->stride + ix];
+            p11 = src->px[(long)(iy + 1) * src->stride + ix + 1];
+            for (ch = 0; ch < 24; ch += 8) {
+                int top = (int)((p00 >> ch) & 0xFF) * (256 - tx) + (int)((p10 >> ch) & 0xFF) * tx;
+                int bot = (int)((p01 >> ch) & 0xFF) * (256 - tx) + (int)((p11 >> ch) & 0xFF) * tx;
+                int s = (top * (256 - ty) + bot * ty) >> 16, dv = (int)((row[px] >> ch) & 0xFF);
+                out |= (uint32_t)(dv + (s - dv) * cover / 256) << ch;
+            }
+            row[px] = 0xFF000000u | out;
+        }
+    }
 }
 
 uint32_t canvas_hash(const ft_canvas *c)

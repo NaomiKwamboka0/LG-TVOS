@@ -18,6 +18,8 @@ static const struct {
     {FT_RGB(0x8590A3), FT_RGB(0x394152)}, /* Gear */
     {FT_RGB(0x4FC3F7), FT_RGB(0x1565C0)}, /* Info */
     {FT_RGB(0x8590A3), FT_RGB(0x394152)}, /* Volume */
+    {FT_RGB(0xFF5252), FT_RGB(0xB3122E)}, /* Play */
+    {FT_RGB(0x8590A3), FT_RGB(0x394152)}, /* Search */
 };
 
 /* cos and sin of k * 22.5 degrees, times 1000 (gear teeth). */
@@ -216,6 +218,23 @@ static void garden_art(ft_canvas *c, int cx, int cy, int s)
     canvas_circle(c, x0 + q / 2, y0 + q + gap + q / 2, q / 4, FT_RGB(0xF06292));
 }
 
+/* A play button: a rounded triangle pointing right. */
+static void play(ft_canvas *c, int cx, int cy, int s, ft_color ink)
+{
+    int tri[6] = {cx - P(s, 34), cy - P(s, 44), cx + P(s, 46), cy, cx - P(s, 34), cy + P(s, 44)};
+    canvas_polygon(c, tri, 3, ink);
+    canvas_circle(c, cx - P(s, 30), cy - P(s, 38), P(s, 8), ink);
+    canvas_circle(c, cx - P(s, 30), cy + P(s, 38), P(s, 8), ink);
+}
+
+/* A magnifying glass. */
+static void magnifier(ft_canvas *c, int cx, int cy, int s, ft_color ink)
+{
+    int t = P(s, 16) < 2 ? 2 : P(s, 16);
+    canvas_ring(c, cx - P(s, 12), cy - P(s, 12), P(s, 44), t, ink);
+    canvas_line(c, cx + P(s, 22), cy + P(s, 22), cx + P(s, 58), cy + P(s, 58), t + 1, ink);
+}
+
 void art_glyph(ft_canvas *c, art_id id, int cx, int cy, int s, ft_color ink)
 {
     int i;
@@ -236,23 +255,92 @@ void art_glyph(ft_canvas *c, art_id id, int cx, int cy, int s, ft_color ink)
     case ART_RACER: racer_art(c, cx, cy, s); break;
     case ART_PENALTY: goal_art(c, cx, cy, s); break;
     case ART_GARDEN: garden_art(c, cx, cy, s); break;
+    case ART_PLAY: play(c, cx, cy, s, ink); break;
+    case ART_SEARCH: magnifier(c, cx, cy, s, ink); break;
     case ART_COUNT:
         break;
     }
 }
 
-void art_tile(ft_canvas *c, ft_rect r, int radius, art_id id, int focused, const char *text)
+static int clamp256(int v)
 {
-    ft_rect sheen = {r.x, r.y, r.w, r.h / 2};
+    return v < -256 ? -256 : v > 256 ? 256 : v;
+}
+
+void art_slab(ft_canvas *c, ft_rect r, int radius, ft_color top, ft_color bottom, int focused, int tilt_x, int tilt_y)
+{
+    int depth = (r.h / 26 < 3 ? 3 : r.h / 26) + (focused ? 2 : 0), ox, oy;
+    ft_rect edge = {r.x - clamp256(tilt_x) * depth / 512, r.y + depth, r.w, r.h};
+    ft_rect inner = {r.x + radius * 3 / 10, r.y + radius * 3 / 10, r.w - radius * 3 / 5, r.h - radius * 3 / 5};
+    ft_canvas clip;
+    tilt_x = clamp256(tilt_x);
+    tilt_y = clamp256(tilt_y);
+    canvas_round(c, edge, radius, color_mix(bottom, FT_RGB(0x000000), 150));
+    canvas_round_gradient(c, r, radius, CORNERS_ALL, top, bottom);
+    if (canvas_clip(c, inner, &clip, &ox, &oy)) {
+        /* light from where the pointer is (from above when upright) */
+        int lx = r.x + r.w * (50 + tilt_x * 40 / 256) / 100 - ox, ly = r.y + r.h * (20 + tilt_y * 40 / 256) / 100 - oy;
+        /* a glossy band across the slab that slides as it leans */
+        int bx = r.x + r.w * (18 + (tilt_x + 256) * 30 / 512) / 100 - ox, bw = r.w / 5, skew = r.h / 2;
+        int band[8] = {bx, r.y - oy, bx + bw, r.y - oy, bx + bw - skew, r.y + r.h - oy, bx - skew, r.y + r.h - oy};
+        if (focused) { /* only the focused slab: polygons are the costly part of a frame */
+            canvas_glow(&clip, lx, ly, r.w * 7 / 10, r.h * 8 / 10, 0x4CFFFFFFu);
+            canvas_polygon(&clip, band, 4, 0x1CFFFFFFu);
+        }
+    }
+    { /* bevel: light catches the top edge, the bottom edge falls into shade */
+        ft_rect sheen = {r.x, r.y, r.w, r.h / 2};
+        canvas_round_gradient(c, sheen, radius, CORNERS_TOP, focused ? 0x30FFFFFFu : 0x12FFFFFFu, 0x00FFFFFFu);
+        canvas_line(c, r.x + radius, r.y + 1, r.x + r.w - radius, r.y + 1, 1, focused ? 0x99FFFFFFu : 0x52FFFFFFu);
+        canvas_line(c, r.x + radius, r.y + r.h - 2, r.x + r.w - radius, r.y + r.h - 2, 1, 0x47000000u);
+    }
+    if (focused)
+        canvas_round_stroke(c, r, radius, 1, 0x47FFFFFFu);
+}
+
+/* Glyphs drawn in one ink can be extruded; the game pictures have their own
+ * colours, so they get a soft shadow instead. */
+static int one_ink(art_id id)
+{
+    return id != ART_RACER && id != ART_PENALTY && id != ART_GARDEN;
+}
+
+void art_glyph_3d(ft_canvas *c, art_id id, int cx, int cy, int s, ft_color ink, ft_color edge)
+{
+    int depth = s / 7 < 2 ? 2 : s / 7, d;
+    if (!one_ink(id)) {
+        ft_rect sh = {cx - s + depth, cy - s / 2 + depth * 2, 2 * s - 2 * depth, s + depth};
+        canvas_shadow(c, sh, s / 3, 0x73000000u);
+    } else {
+        int step = (depth + 2) / 3; /* three layers read as solid depth */
+        for (d = depth; d > 0; d -= step) { /* back to front, darker the deeper */
+            ft_color shade = color_mix(edge, FT_RGB(0x000000), (unsigned)(d * 90 / depth));
+            if (id == ART_FOOTBALL) /* the ball's side is a plain disc: its patches are costly polygons */
+                canvas_circle(c, cx + d / 2, cy + d, P(s, 82), shade);
+            else
+                art_glyph(c, id, cx + d / 2, cy + d, s, shade);
+        }
+    }
+    art_glyph(c, id, cx, cy, s, ink);
+}
+
+void art_tile_lean(ft_canvas *c, ft_rect r, int radius, art_id id, int focused, const char *text, int tilt_x,
+                   int tilt_y)
+{
     art_id safe = id < ART_COUNT ? id : ART_MORE;
-    canvas_round_gradient(c, r, radius, CORNERS_ALL, GRADIENTS[safe].top, GRADIENTS[safe].bottom);
-    canvas_round_gradient(c, sheen, radius, CORNERS_TOP, focused ? 0x47FFFFFFu : 0x17FFFFFFu, 0x00FFFFFFu);
+    ft_color top = GRADIENTS[safe].top, bottom = GRADIENTS[safe].bottom;
+    art_slab(c, r, radius, top, bottom, focused, tilt_x, tilt_y);
     if (text) {
         ft_rect inner = {r.x + 12, r.y, r.w - 24, r.h};
         canvas_text_center(c, r.h > 110 ? &font_title : &font_label, inner, text, COL_TEXT);
-    } else {
-        art_glyph(c, safe, r.x + r.w / 2, r.y + r.h / 2, P(r.h, 34), COL_TEXT);
+    } else { /* the glyph floats a little in front, so it shifts more as the slab leans */
+        int s = P(r.h, 34);
+        art_glyph_3d(c, safe, r.x + r.w / 2 + clamp256(tilt_x) * s / 1800, r.y + r.h / 2 + clamp256(tilt_y) * s / 2400, s,
+                     COL_TEXT, color_mix(bottom, FT_RGB(0x000000), 60));
     }
-    if (focused)
-        canvas_round_stroke(c, r, radius, 2, 0x38FFFFFFu);
+}
+
+void art_tile(ft_canvas *c, ft_rect r, int radius, art_id id, int focused, const char *text)
+{
+    art_tile_lean(c, r, radius, id, focused, text, 0, 0);
 }

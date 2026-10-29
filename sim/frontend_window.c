@@ -10,6 +10,7 @@
 #include <string.h>
 
 #include "frontend.h"
+#include "platform.h"
 #include "view.h"
 
 static SDL_Window *window;
@@ -46,10 +47,39 @@ static void window_folders(char *data, size_t data_n, char *base, size_t base_n)
     SDL_free(exe);
 }
 
+/* The mouse: where it is in the 1280x720 layout, and when it last moved.
+ * In full screen the cursor hides once it rests, like a TV's. */
+#define POINTER_REST_MS 3000
+#define WHEEL_STEP_MS 150
+static int pointer_x, pointer_y, pointer_seen;
+static Uint32 pointer_moved;
+
 static void set_fullscreen(int on)
 {
     SDL_SetWindowFullscreen(window, on ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
-    SDL_ShowCursor(on ? SDL_DISABLE : SDL_ENABLE);
+    SDL_ShowCursor(on && !pointer_seen ? SDL_DISABLE : SDL_ENABLE);
+}
+
+static int window_pointer(int *x, int *y)
+{
+    int resting = !pointer_seen || SDL_GetTicks() - pointer_moved > POINTER_REST_MS;
+    if (resting && window && (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN_DESKTOP))
+        SDL_ShowCursor(SDL_DISABLE);
+    *x = pointer_x;
+    *y = pointer_y;
+    return pointer_seen && !resting;
+}
+
+/* Canvas pixels (SDL already maps the window onto the logical size) to the layout. */
+static void pointer_at(int px, int py)
+{
+    if (scale <= 0)
+        return;
+    pointer_x = px * 2 / scale;
+    pointer_y = py * 2 / scale;
+    pointer_seen = 1;
+    pointer_moved = SDL_GetTicks();
+    SDL_ShowCursor(SDL_ENABLE);
 }
 
 static int window_is_fullscreen(void)
@@ -192,9 +222,38 @@ static void window_close(void)
     SDL_Quit();
 }
 
+static int text_level, last_typed;
+
+static void window_text_mode(int mode)
+{
+    text_level = mode;
+}
+
+static int window_typed(void)
+{
+    return last_typed;
+}
+
+static ft_key typed_key(int ch)
+{
+    last_typed = ch;
+    return FT_TEXT;
+}
+
 static ft_key map_key(const SDL_KeyboardEvent *k, int *quit)
 {
-    switch (k->keysym.sym) {
+    SDL_Keycode sym = k->keysym.sym;
+    /* While typing, letters (and on the keyboard screen Space, Backspace and
+     * Return) are text, not shortcuts: SDL_TEXTINPUT brings the letters. */
+    if (text_level >= 1 && ((sym >= SDLK_a && sym <= SDLK_z) || (sym >= SDLK_0 && sym <= SDLK_9)))
+        return FT_NONE;
+    if (text_level >= 2 && sym == SDLK_SPACE)
+        return FT_NONE;
+    if (text_level >= 2 && sym == SDLK_BACKSPACE)
+        return typed_key('\b');
+    if (text_level >= 2 && (sym == SDLK_RETURN || sym == SDLK_KP_ENTER))
+        return k->repeat ? FT_NONE : typed_key('\n');
+    switch (sym) {
     case SDLK_LEFT: return FT_LEFT;
     case SDLK_RIGHT: return FT_RIGHT;
     case SDLK_UP: return FT_UP;
@@ -256,6 +315,32 @@ static ft_key window_poll(int ms, int *quit)
                 if (k != FT_NONE || *quit)
                     return k;
             }
+            if (e.type == SDL_TEXTINPUT && text_level >= 1) {
+                char ch = e.text.text[0];
+                if ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') ||
+                    (ch == ' ' && text_level >= 2))
+                    return typed_key(ch);
+            }
+            if (e.type == SDL_MOUSEMOTION && e.motion.which != SDL_TOUCH_MOUSEID) {
+                pointer_at(e.motion.x, e.motion.y);
+                return FT_POINT;
+            }
+            if (e.type == SDL_MOUSEBUTTONDOWN && e.button.which != SDL_TOUCH_MOUSEID) {
+                pointer_at(e.button.x, e.button.y);
+                if (e.button.button == SDL_BUTTON_LEFT)
+                    return e.button.clicks == 2 ? FT_NONE : FT_CLICK; /* a double click is one choice */
+                if (e.button.button == SDL_BUTTON_RIGHT || e.button.button == SDL_BUTTON_X1)
+                    return FT_BACK;
+            }
+            if (e.type == SDL_MOUSEWHEEL && e.wheel.y != 0) {
+                /* A trackpad swipe sends a burst: one step per WHEEL_STEP_MS. */
+                static Uint32 last_step;
+                int up = (e.wheel.direction == SDL_MOUSEWHEEL_FLIPPED ? -e.wheel.y : e.wheel.y) > 0;
+                if (SDL_GetTicks() - last_step >= WHEEL_STEP_MS) {
+                    last_step = SDL_GetTicks();
+                    return up ? FT_WHEEL_UP : FT_WHEEL_DOWN;
+                }
+            }
         }
         if (*quit)
             return FT_NONE;
@@ -282,7 +367,17 @@ static int window_shell(const shell *s)
     motion_tick = now;
     if (s->screen == SCR_HOME) {
         ui_targets t;
+        int x, y;
         view_home_targets(s, &t);
+        if (s->row >= 0 && window_pointer(&x, &y)) { /* lean toward the pointer while it is over the card */
+            ft_rect r = view_home_card_rect(s, s->row, s->col[s->row]);
+            if (r.w > 0 && x >= r.x - 16 && x < r.x + r.w + 16 && y >= r.y - 16 && y < r.y + r.h + 16) {
+                t.tilt_x = (x - (r.x + r.w / 2)) * 256 / (r.w / 2);
+                t.tilt_y = (y - (r.y + r.h / 2)) * 256 / (r.h / 2);
+                t.tilt_x = t.tilt_x > 256 ? 256 : t.tilt_x < -256 ? -256 : t.tilt_x;
+                t.tilt_y = t.tilt_y > 256 ? 256 : t.tilt_y < -256 ? -256 : t.tilt_y;
+            }
+        }
         moving = motion_step(&motion, &t, s->tab, dt > 100 ? 100 : dt);
     } else {
         motion.valid = 0; /* back on Home, the rows start where they belong */
@@ -397,10 +492,14 @@ static void window_wake(void *ctx)
     }
 }
 
-/* The browser opens on top; the TV window steps aside until the family
- * comes back to it from the taskbar or Dock. */
+/* Apps open full screen in a browser window of their own, over Family TV,
+ * which is there again when they close. Without such a browser the normal
+ * one opens, and the TV window steps aside until the family comes back to
+ * it from the taskbar or Dock. */
 static int window_open_url(const char *url)
 {
+    if (plat_open_app_window(url) == PLAT_OK)
+        return 0;
     if (SDL_OpenURL(url) != 0)
         return -1;
     SDL_MinimizeWindow(window);
@@ -408,6 +507,8 @@ static int window_open_url(const char *url)
 }
 
 const sim_frontend frontend_window = {
-    "window", window_folders, window_open, window_close, window_poll, window_shell, window_racer, window_penalty,
+    "window", window_folders, window_open, window_close, window_poll, window_pointer, window_text_mode, window_typed,
+    window_shell, window_racer,
+    window_penalty,
     window_garden, window_live, window_wake, window_is_fullscreen, window_open_url, window_startup
 };

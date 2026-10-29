@@ -67,19 +67,6 @@ void render_shell(const shell *s)
         return;
     }
 
-    if (s->screen == SCR_SPORTS) {
-        int order[CH_MAX], n = shell_sports_order(s, order), i;
-        static const char *const STATE[] = {"", "checking...", "LIVE", "coming up", "nothing live"};
-        for (i = 0; i < n; i++) {
-            const sport_status *st = &s->cfg.sport[order[i]];
-            int on = order[i] == s->item;
-            printf("  %s%s %-26s %-13s %s%s\n", on ? INV : "", on ? ">" : " ", s->cfg.sports.ch[order[i]].name,
-                   STATE[st->state < 5 ? st->state : 0], st->title, on ? RST : "");
-        }
-        footer(tr(L, STR_HELP_SPORTS), s->status);
-        return;
-    }
-
     if (s->screen == SCR_HOME) {
         static shell_row rows[SHELL_MAX_ROWS];
         int n = shell_home_rows(s, rows, SHELL_MAX_ROWS), r, i;

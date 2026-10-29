@@ -131,15 +131,55 @@ static void shell_shots(void)
     s.row = 2;
     view_shell(&canvas, &s, "20:01");
     save("21-sports-banner");
-    s.screen = SCR_SPORTS;
-    s.item = 1;
+    /* The Sports tab, with example search results (made-up clubs). */
+    s.cfg.nfound = 3;
+    snprintf(s.cfg.found[0].title, sizeof s.cfg.found[0].title, "Gor Mahia vs AFC Leopards | Mashemeji Derby watch along");
+    snprintf(s.cfg.found[0].by, sizeof s.cfg.found[0].by, "Kenyan Football Live");
+    s.cfg.found[0].viewers = 12400;
+    snprintf(s.cfg.found[1].title, sizeof s.cfg.found[1].title, "Everton vs Newcastle LIVE Watch Along | Carabao Cup");
+    snprintf(s.cfg.found[1].by, sizeof s.cfg.found[1].by, "Matchday Unfiltered");
+    s.cfg.found[1].viewers = 830;
+    snprintf(s.cfg.found[2].title, sizeof s.cfg.found[2].title, "Al Nassr vs Al Kholood | Saudi Pro League");
+    snprintf(s.cfg.found[2].by, sizeof s.cfg.found[2].by, "Blink Sports");
+    s.tab = TAB_SPORTS;
+    s.row = 1;
+    s.col[1] = 0;
     view_shell(&canvas, &s, "20:01");
-    save("22-sports-page");
+    save("22-sports-tab");
     s.screen = SCR_HOME;
     s.row = 3;
     s.col[3] = 1;
     view_shell(&canvas, &s, "20:01");
     save("23-netflix-tile");
+
+    /* YouTube: the search keyboard, part-way through typing */
+    config(&c, LANG_EN, PROFILE_PARENT);
+    shell_init(&s, &c);
+    s.tab = TAB_YOUTUBE;
+    s.screen = SCR_KEYBOARD;
+    snprintf(s.cfg.yt_query, sizeof s.cfg.yt_query, "harambee stars");
+    s.item = KEY_SEARCH;
+    view_shell(&canvas, &s, "20:01");
+    save("27-youtube-keyboard");
+
+    { /* the mouse over the focused card: it leans toward the pointer */
+        ui_motion m;
+        ui_targets t;
+        memset(&m, 0, sizeof m);
+        s.screen = SCR_HOME;
+        s.tab = TAB_FOR_YOU;
+        s.row = 1;
+        s.col[1] = 1;
+        view_home_targets(&s, &t);
+        t.tilt_x = 200;
+        t.tilt_y = -150;
+        motion_step(&m, &t, s.tab, 0);
+        m.now.tilt_x = t.tilt_x;
+        m.now.tilt_y = t.tilt_y;
+        m.zoom = MOTION_ZOOM_FULL;
+        view_shell_motion(&canvas, &s, "20:01", &m);
+        save("26-mouse-tilt");
+    }
 
     view_startup(&canvas, 450, LANG_EN);
     save("24-startup-glow");

@@ -37,12 +37,15 @@ int motion_step(ui_motion *m, const ui_targets *t, int tab, int elapsed_ms)
     if (t->focus_key != m->now.focus_key) {
         m->now.focus_key = t->focus_key;
         m->zoom = 0;
+        m->now.tilt_x = m->now.tilt_y = 0; /* a newly focused card starts upright */
     }
     moving |= ease(&m->now.page_y, t->page_y, elapsed_ms);
     for (i = 0; i < SHELL_MAX_ROWS; i++)
         moving |= ease(&m->now.row_x[i], t->row_x[i], elapsed_ms);
     moving |= ease(&m->now.tab_x, t->tab_x, elapsed_ms);
     moving |= ease(&m->now.tab_w, t->tab_w, elapsed_ms);
+    moving |= ease(&m->now.tilt_x, t->tilt_x, elapsed_ms);
+    moving |= ease(&m->now.tilt_y, t->tilt_y, elapsed_ms);
     if (m->zoom < MOTION_ZOOM_FULL) {
         m->zoom += elapsed_ms * MOTION_ZOOM_FULL / 140;
         if (m->zoom > MOTION_ZOOM_FULL)

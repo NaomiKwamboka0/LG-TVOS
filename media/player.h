@@ -73,17 +73,20 @@ const player_status *player_get(const player *p);
 enum { PLAYER_SAME_PICTURE = 1, PLAYER_NEW_PICTURE = 2 };
 int player_render(player *p, uint32_t *px, int w, int h, int stride);
 
-/* Background yt-dlp questions (the Sports page asks each channel what it
- * is streaming). player_probe starts `yt-dlp --flat-playlist ... --print
+/* Background yt-dlp questions (the Sports tab asks each channel what it
+ * is streaming, and searches YouTube for live football). player_probe starts `yt-dlp --flat-playlist ... --print
  * <format> <page>` and returns at once (-1: cannot); results come back
  * one at a time from player_probe_next after player_pump. */
-#define PLAYER_PROBE_OUT 2048
+#define PLAYER_PROBE_OUT 8192 /* a search page: 25 results of about 200 bytes */
 
 typedef struct {
     int tag;
     int ok; /* yt-dlp ran and printed something */
     char out[PLAYER_PROBE_OUT];
 } player_probe_result;
+
+/* Tags from here up are searches; the stub answers them with search results. */
+#define PLAYER_SEARCH_TAG 900
 
 int player_probe(player *p, int tag, const char *page_url, const char *print_format, int items);
 int player_probe_next(player *p, player_probe_result *r);

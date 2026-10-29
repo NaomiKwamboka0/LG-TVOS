@@ -26,6 +26,15 @@ typedef struct {
     void (*close)(void);
     /* Waits up to ms for a key (0 = until a key arrives). Sets *quit when the user quits. */
     ft_key (*poll)(int ms, int *quit);
+    /* Where the mouse pointer is, in the 1280x720 layout; 0 when there is
+     * no pointer or it has not moved for a while. May be NULL. */
+    int (*pointer)(int *x, int *y);
+    /* Typing: 0 off; 1 letters and digits arrive as FT_TEXT (the YouTube
+     * tab); 2 everything typed does, Backspace as '\b' and Return as '\n'
+     * (the search keyboard). typed() is the character of the last FT_TEXT.
+     * Both may be NULL. */
+    void (*text_mode)(int mode);
+    int (*typed)(void);
     /* Draws the shell; returns how soon (ms) it wants to draw again for
      * motion or the moving background, or 0 for not until something changes. */
     int (*shell)(const shell *s);

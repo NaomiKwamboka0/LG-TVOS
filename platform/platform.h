@@ -19,4 +19,10 @@ int plat_mkdir(const char *path);
 /* Renames from over to, replacing to if it exists. 0 on success. */
 int plat_replace(const char *from, const char *to);
 
+/* Opens a web address as an app: full screen in a browser window of its
+ * own, without tabs or an address bar, signed in as the family's browser
+ * is (Edge on Windows; Chrome, Edge or Brave on a Mac). PLAT_UNSUPPORTED
+ * when no such browser is installed; the caller then uses the normal one. */
+plat_status plat_open_app_window(const char *url);
+
 #endif

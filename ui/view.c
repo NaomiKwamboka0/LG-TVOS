@@ -22,6 +22,11 @@
 #define ROW_TITLE_H 40
 #define GUIDE_H 60
 #define GUIDE_STEP 70
+#define SEARCH_H 64
+#define KEY_W 92
+#define KEY_H 64
+#define KEY_GAP 12
+#define KEYS_TOP 300
 #define LIST_X 560
 #define LIST_TOP 116
 #define LIST_W 648
@@ -284,13 +289,23 @@ static void top_bar(ft_canvas *c, const shell *s, const char *clock_text, int ta
     if (!tabs) {
         chip.x = clock_left(clock) - 20 - chip.w;
     } else {
-        { /* one highlight, gliding to the selected tab */
+        { /* a floating glass bar holds the tabs; one highlight glides between them */
+            ft_rect first = view_top_rect(s, 0), last = view_top_rect(s, TAB_COUNT - 1);
+            ft_rect bar = {first.x - 6, first.y - 6, last.x + last.w - first.x + 12, TOP_H + 12};
             ft_rect pill = view_top_rect(s, s->tab);
+            int lit = on_bar && s->top < TAB_COUNT;
+            canvas_shadow(c, (ft_rect){bar.x + 8, bar.y + 10, bar.w - 16, bar.h - 4}, 20, 0x73000000u);
+            canvas_round(c, bar, bar.h / 2, 0x991B1E28u);
+            canvas_round_stroke(c, bar, bar.h / 2, 1, 0x29FFFFFFu);
+            canvas_line(c, bar.x + bar.h / 2, bar.y + 1, bar.x + bar.w - bar.h / 2, bar.y + 1, 1, 0x40FFFFFFu);
             if (m) {
                 pill.x = m->now.tab_x;
                 pill.w = m->now.tab_w;
             }
-            canvas_round(c, pill, TOP_H / 2, on_bar && s->top < TAB_COUNT ? COL_FOCUS_BG : COL_ROW);
+            if (lit)
+                canvas_shadow(c, lift(pill, 2, 2), 16, 0x66FFFFFFu);
+            art_slab(c, pill, TOP_H / 2, lit ? FT_RGB(0xFFFFFF) : FT_RGB(0x3A3E4A), lit ? FT_RGB(0xDADCE2) : FT_RGB(0x23262E),
+                     lit, 0, 0);
         }
         for (i = 0; i < TAB_COUNT; i++) {
             ft_rect r = view_top_rect(s, i);
@@ -381,6 +396,7 @@ static int row_height(const shell_row *r)
     case ROW_BANNER: return BANNER_H + 32;
     case ROW_CARDS: return ROW_TITLE_H + CARD_H + 56;
     case ROW_GUIDE: return (r->title != STR_COUNT ? ROW_TITLE_H : 0) + GUIDE_STEP;
+    case ROW_SEARCH: return SEARCH_H + 28;
     }
     return 0;
 }
@@ -451,6 +467,12 @@ static ft_rect card_rect(const shell *s, const shell_row *rows, int n, const hom
         r.w = VIEW_W - 2 * VIEW_MARGIN;
         r.h = GUIDE_H;
         break;
+    case ROW_SEARCH:
+        r.x = VIEW_MARGIN;
+        r.y = y + 4;
+        r.w = VIEW_W - 2 * VIEW_MARGIN;
+        r.h = SEARCH_H;
+        break;
     }
     return r;
 }
@@ -461,6 +483,94 @@ ft_rect view_home_card_rect(const shell *s, int row, int col)
     home_geo g;
     int n = home_layout(s, rows, &g);
     return card_rect(s, rows, n, &g, row, col, NULL);
+}
+
+static int inside(ft_rect r, int x, int y)
+{
+    return x >= r.x && y >= r.y && x < r.x + r.w && y < r.y + r.h;
+}
+
+static int list_first(int item)
+{
+    return item >= LIST_VISIBLE ? item - LIST_VISIBLE + 1 : 0;
+}
+
+view_hit view_shell_hit(const shell *s, int x, int y)
+{
+    static shell_row rows[SHELL_MAX_ROWS];
+    view_hit h = {HIT_NONE, 0, 0, 0};
+    home_geo g;
+    int n, i, j, first;
+
+    if (s->screen == SCR_PIN) {
+        for (i = 0; i < SHELL_PIN_DIGITS; i++)
+            if (inside(lift(view_pin_box_rect(i), 6, 6), x, y)) {
+                h.kind = HIT_PIN;
+                h.col = i;
+                h.whole = 1;
+            }
+        return h;
+    }
+    if (s->screen == SCR_KEYBOARD) {
+        for (i = 0; i < SHELL_KEYS; i++)
+            if (inside(view_key_rect(i), x, y)) {
+                h.kind = HIT_ITEM;
+                h.col = i;
+                h.whole = 1;
+            }
+        return h;
+    }
+    if (s->screen != SCR_HOME) {
+        char labels[SHELL_MAX_ITEMS][SHELL_LABEL_MAX];
+        n = shell_list(s, labels, SHELL_MAX_ITEMS);
+        first = list_first(s->item);
+        for (i = first; i < n && i < first + LIST_VISIBLE; i++)
+            if (inside(view_list_row_rect(i - first), x, y)) {
+                h.kind = HIT_ITEM;
+                h.col = i;
+                h.whole = 1;
+            }
+        return h;
+    }
+    for (i = 0; i < TOP_COUNT; i++)
+        if (inside(view_top_rect(s, i), x, y)) {
+            h.kind = HIT_TOP;
+            h.col = i;
+            h.whole = 1;
+            return h;
+        }
+    if (y < CONTENT_TOP || y >= CONTENT_BOTTOM)
+        return h;
+    n = home_layout(s, rows, &g);
+    for (i = 0; i < n; i++)
+        for (j = 0; j < rows[i].n; j++) {
+            ft_rect r = card_rect(s, rows, n, &g, i, j, NULL);
+            if (rows[i].style == ROW_CARDS && r.x >= VIEW_W)
+                break;
+            if (inside(r, x, y)) {
+                h.kind = HIT_CARD;
+                h.row = i;
+                h.col = j;
+                h.whole = r.x >= 0 && r.x + r.w <= VIEW_W && r.y >= CONTENT_TOP - 8 && r.y + r.h <= CONTENT_BOTTOM;
+                return h;
+            }
+        }
+    return h;
+}
+
+int view_live_hit(const live *l, int nch, int x, int y)
+{
+    int first = l->panel_item - PANEL_VISIBLE / 2, i;
+    if (!l->panel_open)
+        return -1;
+    if (first > nch - PANEL_VISIBLE)
+        first = nch - PANEL_VISIBLE;
+    if (first < 0)
+        first = 0;
+    for (i = first; i < nch && i < first + PANEL_VISIBLE; i++)
+        if (inside(view_live_panel_row_rect(i - first), x, y))
+            return i;
+    return -1;
 }
 
 void view_home_targets(const shell *s, ui_targets *t)
@@ -504,24 +614,56 @@ static void ring(ft_canvas *c, ft_rect r, int radius)
     canvas_round_stroke(c, outer, radius + 5, 3, COL_RING);
 }
 
-/* No LIVE badge here: whether a channel is live is only known once it plays. */
-static void channel_card(ft_canvas *c, ft_rect r, const channel *ch, int focused)
+static void spinner(ft_canvas *c, int cx, int cy, int radius, uint32_t anim_ms)
 {
-    ft_rect sheen = {r.x, r.y, r.w, r.h / 2};
+    static const int DX[8] = {0, 707, 1000, 707, 0, -707, -1000, -707};
+    static const int DY[8] = {-1000, -707, 0, 707, 1000, 707, 0, -707};
+    int head = (int)(anim_ms / 110 % 8), i;
+    for (i = 0; i < 8; i++) {
+        int age = (head - i + 8) % 8;
+        canvas_circle(c, cx + DX[i] * radius / 1000, cy + DY[i] * radius / 1000, radius / 5,
+                      color_alpha(COL_TEXT, (unsigned)(255 - age * 28)));
+    }
+}
+
+/* How far a card leans toward the mouse pointer: only the focused one, on
+ * the home screen, and only while the pointer is over it. */
+static void lean(const ui_motion *m, int focused, int *tx, int *ty)
+{
+    *tx = focused && m ? m->now.tilt_x : 0;
+    *ty = focused && m ? m->now.tilt_y : 0;
+}
+
+/* What floats a card off the page: a tight contact shadow and a wide soft
+ * one thrown away from the light. The focused card floats higher, and its
+ * own colour glows around it. */
+static void float_card(ft_canvas *c, ft_rect r, ft_color accent, int focused, int tx, int ty)
+{
+    ft_rect soft = {r.x + 10 - tx * 16 / 256, r.y + (focused ? 30 : 16) - ty * 10 / 256, r.w - 20, r.h - 8};
+    ft_rect contact = {r.x + 4, r.y + 8, r.w - 8, r.h - 2};
+    ft_rect under = lift(r, -6, -6); /* clear of the rounded corners (radius 14), so surely covered */
+    if (tx || ty) /* a turned card does not cover its whole rectangle */
+        under.w = 0;
+    if (focused)
+        canvas_shadow_under(c, lift(r, 4, 4), 34, color_alpha(accent, 0x8C), under);
+    canvas_shadow_under(c, soft, focused ? 36 : 22, focused ? 0xB8000000u : 0x80000000u, under);
+    if (focused) /* resting cards make do with one shadow */
+        canvas_shadow_under(c, contact, 8, 0x59000000u, under);
+}
+
+/* No LIVE badge here: whether a channel is live is only known once it plays. */
+static void channel_card(ft_canvas *c, ft_rect r, const channel *ch, int focused, int tx, int ty)
+{
     ft_rect badge = {r.x + 12, r.y + 12, 44, 34};
-    ft_color top = color_mix(ch->accent, COL_TEXT, 25), bottom = color_mix(ch->accent, FT_RGB(0x000000), 120);
-    if (focused) {
-        ft_rect sh = {r.x + 8, r.y + 18, r.w - 16, r.h - 8};
-        canvas_shadow(c, sh, 26, 0xB0000000u);
-    }
-    canvas_round_gradient(c, r, 14, CORNERS_ALL, top, bottom);
-    canvas_round_gradient(c, sheen, 14, CORNERS_TOP, focused ? 0x40FFFFFFu : 0x14FFFFFFu, 0x00FFFFFFu);
+    ft_color top = color_mix(ch->accent, COL_TEXT, 30), bottom = color_mix(ch->accent, FT_RGB(0x000000), 120);
+    char num[8];
+    art_slab(c, r, 14, top, bottom, focused, tx, ty);
+    art_glyph_3d(c, ART_LIVE_TV, r.x + r.w - 34 + tx * 4 / 256, r.y + 30 + ty * 3 / 256, 15, 0xD9FFFFFFu,
+                 color_mix(ch->accent, FT_RGB(0x000000), 80));
     canvas_round(c, badge, 8, 0x4D000000u);
-    {
-        char num[8];
-        snprintf(num, sizeof num, "%d", ch->number);
-        canvas_text_center(c, &font_label, badge, num, COL_TEXT);
-    }
+    canvas_round_stroke(c, badge, 8, 1, 0x26FFFFFFu);
+    snprintf(num, sizeof num, "%d", ch->number);
+    canvas_text_center(c, &font_label, badge, num, COL_TEXT);
     canvas_text_fit(c, text_width(&font_title, ch->name) <= r.w - 28 ? &font_title : &font_label, r.x + 14,
                     r.y + r.h - 14 - font_title.line_height, r.w - 28, ch->name, COL_TEXT);
     if (focused)
@@ -547,7 +689,7 @@ static void sports_art(ft_canvas *c, ft_rect r, int radius, const shell *s, int 
     int pitch[8] = {x + w * 6 / 100, y + h - 3, x + w * 94 / 100, y + h - 3, x + w * 80 / 100, y + h * 60 / 100,
                     x + w * 20 / 100, y + h * 60 / 100};
     int bx = x + w * (words ? 76 : 62) / 100, by = y + h * (words ? 58 : 52) / 100, br = h * (words ? 22 : 26) / 100;
-    canvas_round_gradient(c, r, radius, CORNERS_ALL, FT_RGB(0x12305E), FT_RGB(0x060B18));
+    art_slab(c, r, radius, FT_RGB(0x12305E), FT_RGB(0x060B18), 0, 0, 0);
     canvas_polygon(c, pitch, 4, FT_RGB(0x1C7A3C));
     canvas_line(c, x + w / 2, y + h * 61 / 100, x + w / 2, y + h - 4, 2, 0x8CFFFFFFu);
     canvas_line(c, x + w * 14 / 100, y + h * 80 / 100, x + w * 86 / 100, y + h * 80 / 100, 2, 0x5CFFFFFFu);
@@ -558,7 +700,7 @@ static void sports_art(ft_canvas *c, ft_rect r, int radius, const shell *s, int 
     canvas_circle(c, x + w * 11 / 100, y + 9, h / 30 + 2, COL_TEXT);
     canvas_circle(c, x + w * 89 / 100, y + 9, h / 30 + 2, COL_TEXT);
     canvas_shadow(c, (ft_rect){bx - br, by + br / 2, 2 * br, br}, br / 2, 0x99000000u);
-    art_glyph(c, ART_FOOTBALL, bx, by, br * 100 / 82, COL_TEXT);
+    art_glyph_3d(c, ART_FOOTBALL, bx, by, br * 100 / 82, COL_TEXT, FT_RGB(0x5A6B7D));
     if (words) {
         ft_rect line = {x + 44, y + 100, w * 55 / 100, 2 * font_body.line_height};
         canvas_text(c, &font_display, x + 44, y + 38, tr(L, STR_SPORTS), COL_TEXT);
@@ -585,7 +727,14 @@ static art_id card_art(shell_card k)
     case CARD_SETTINGS: return ART_SETTINGS;
     case CARD_PROFILE: return ART_PROFILE;
     case CARD_ABOUT: return ART_INFO;
-    case CARD_SPORTS: return ART_FOOTBALL;
+    case CARD_SPORTS:
+    case CARD_SPORT:
+    case CARD_FOUND:
+    case CARD_SEARCHING: return ART_FOOTBALL;
+    case CARD_VIDEO:
+    case CARD_YT_LOADING: return ART_PLAY;
+    case CARD_YT_SEARCH: return ART_SEARCH;
+    case CARD_ASK_PARENT: return ART_SETTINGS;
     case CARD_CHANNEL:
     case CARD_APP:
     case CARD_NO_CHANNELS: break;
@@ -594,36 +743,271 @@ static art_id card_art(shell_card k)
 }
 
 /* Streaming services show their name, never a logo. */
-static void app_tile(ft_canvas *c, ft_rect r, int app, int focused)
+static void app_tile(ft_canvas *c, ft_rect r, int app, int focused, int tx, int ty)
 {
     static const ft_color ACCENT[APP_COUNT] = {FT_RGB(0xE50914), FT_RGB(0xFF0033)};
-    ft_rect bar = {r.x, r.y + r.h - 8, r.w, 8};
+    ft_color accent = ACCENT[app % APP_COUNT];
     ft_rect name = {r.x, r.y, r.w, r.h - 8};
-    canvas_round_gradient(c, r, 14, CORNERS_ALL, FT_RGB(0x26272D), FT_RGB(0x111216));
-    canvas_round_gradient(c, bar, 4, CORNERS_ALL, ACCENT[app % APP_COUNT], ACCENT[app % APP_COUNT]);
+    ft_canvas clip;
+    int ox, oy;
+    art_slab(c, r, 14, FT_RGB(0x2C2D34), FT_RGB(0x0F1013), focused, tx, ty);
+    if (canvas_clip(c, (ft_rect){r.x + 4, r.y + 4, r.w - 8, r.h - 8}, &clip, &ox, &oy)) /* the brand colour glows up */
+        canvas_glow(&clip, r.x + r.w / 2 - ox, r.y + r.h - oy, r.w * 6 / 10, r.h * 5 / 10, color_alpha(accent, 0x99));
+    canvas_text_center(c, &font_title, (ft_rect){name.x + 1, name.y + 2, name.w, name.h}, shell_app_name(app), 0x8C000000u);
     canvas_text_center(c, &font_title, name, shell_app_name(app), COL_TEXT);
-    if (focused)
-        canvas_round_stroke(c, r, 14, 2, 0x38FFFFFFu);
 }
 
-static void app_card(ft_canvas *c, ft_rect r, const shell *s, shell_card k, int focused)
+/* An official sports channel: its colour, its name, and whether a match is
+ * on now or coming up. */
+static void sport_tile(ft_canvas *c, ft_rect r, const shell *s, int i, int focused, int tx, int ty)
 {
-    ft_rect label = {r.x, r.y + r.h + 12, r.w, font_label.line_height};
-    if (focused) {
-        ft_rect sh = {r.x + 8, r.y + 18, r.w - 16, r.h - 8};
-        canvas_shadow(c, sh, 26, 0xB0000000u);
+    const channel *ch = &s->cfg.sports.ch[i];
+    const sport_status *st = &s->cfg.sport[i];
+    ft_lang L = s->cfg.lang;
+    art_slab(c, r, 14, color_mix(ch->accent, COL_TEXT, 30), color_mix(ch->accent, FT_RGB(0x000000), 130), focused, tx,
+             ty);
+    art_glyph_3d(c, ART_LIVE_TV, r.x + r.w - 36 + tx * 5 / 256, r.y + 32 + ty * 4 / 256, 17, COL_TEXT,
+                 color_mix(ch->accent, FT_RGB(0x000000), 90));
+    if (st->state == SPORT_LIVE)
+        live_pill(c, r.x + 12, r.y + 12, L);
+    else if (st->state == SPORT_UPCOMING || st->state == SPORT_CHECKING) {
+        const char *t = tr(L, st->state == SPORT_UPCOMING ? STR_COMING_UP : STR_CHECKING);
+        ft_rect chip = {r.x + 12, r.y + 12, text_width(&font_caption, t) + 20, 26};
+        canvas_round(c, chip, 13, 0x59000000u);
+        canvas_text_center(c, &font_caption, chip, t, COL_TEXT_2);
     }
-    if (k.kind == CARD_SPORTS)
+    canvas_text_fit(c, text_width(&font_title, ch->name) <= r.w - 28 ? &font_title : &font_label, r.x + 14,
+                    r.y + r.h - 14 - font_title.line_height, r.w - 28, ch->name, COL_TEXT);
+}
+
+/* "12.4k watching" */
+static void viewers_text(char *out, size_t n, int v, ft_lang L)
+{
+    if (v >= 1000)
+        snprintf(out, n, "%d.%dk %s", v / 1000, v % 1000 / 100, tr(L, STR_VIEWERS));
+    else
+        snprintf(out, n, "%d %s", v, tr(L, STR_VIEWERS));
+}
+
+/* A live football stream found by search: a floodlit pitch with the
+ * match's own title on it. */
+static void found_tile(ft_canvas *c, ft_rect r, const shell *s, int i, int focused, int tx, int ty)
+{
+    const sport_found *f = &s->cfg.found[i];
+    ft_lang L = s->cfg.lang;
+    ft_rect title = {r.x + 14, r.y + 46, r.w - 28, 2 * font_label.line_height};
+    int x = r.x, y = r.y, w = r.w, h = r.h;
+    int pitch[8] = {x + w * 4 / 100, y + h - 4, x + w * 96 / 100, y + h - 4, x + w * 78 / 100, y + h * 52 / 100,
+                    x + w * 22 / 100, y + h * 52 / 100};
+    ft_canvas clip;
+    int ox, oy;
+    art_slab(c, r, 14, FT_RGB(0x15335E), FT_RGB(0x07101F), focused, tx, ty);
+    canvas_polygon(c, pitch, 4, 0x8C1C7A3Cu);
+    canvas_line(c, x + w / 2, y + h * 53 / 100, x + w / 2, y + h - 5, 1, 0x4DFFFFFFu);
+    if (canvas_clip(c, (ft_rect){x + 4, y + 4, w - 8, h - 8}, &clip, &ox, &oy)) { /* floodlights */
+        canvas_glow(&clip, x + w * 12 / 100 - ox, y + 6 - oy, h / 4, h / 6, 0x80FFF6D5u);
+        canvas_glow(&clip, x + w * 88 / 100 - ox, y + 6 - oy, h / 4, h / 6, 0x80FFF6D5u);
+    }
+    live_pill(c, r.x + 12, r.y + 12, L);
+    if (f->viewers > 0) {
+        char v[40];
+        viewers_text(v, sizeof v, f->viewers, L);
+        canvas_text_right(c, &font_caption, r.x + r.w - 14, r.y + 16, v, COL_TEXT_2);
+    }
+    canvas_text_wrap(c, &font_label, (ft_rect){title.x + 1, title.y + 2, title.w, title.h}, f->title, 0x99000000u);
+    canvas_text_wrap(c, &font_label, title, f->title, COL_TEXT);
+}
+
+/* Stands in for the search results while they come, or when there are none. */
+static void searching_tile(ft_canvas *c, ft_rect r, const shell *s, int focused, int tx, int ty, const ui_motion *m)
+{
+    ft_rect line = {r.x + 16, r.y + r.h - 16 - 2 * font_body.line_height, r.w - 32, 2 * font_body.line_height};
+    art_slab(c, r, 14, FT_RGB(0x2A2E38), FT_RGB(0x14161B), focused, tx, ty);
+    if (s->cfg.searching)
+        spinner(c, r.x + r.w / 2, r.y + 40, 16, m ? m->ambient : 0);
+    else
+        art_glyph_3d(c, ART_FOOTBALL, r.x + r.w / 2, r.y + 40, 22, COL_TEXT_2, FT_RGB(0x2A2E38));
+    canvas_text_wrap(c, &font_body, line, shell_card_label(s, (shell_card){CARD_SEARCHING, 0}), COL_TEXT_2);
+}
+
+/* A YouTube video. No pictures (they would need fetching); each video gets
+ * a deep colour of its own, the play button and its title. */
+static void video_tile(ft_canvas *c, ft_rect r, const shell *s, int i, int focused, int tx, int ty)
+{
+    static const ft_color DEEP[6] = {FT_RGB(0x7A1630), FT_RGB(0x1D3E7A), FT_RGB(0x1F5E4A), FT_RGB(0x5B2A86),
+                                     FT_RGB(0x80441A), FT_RGB(0x234B66)};
+    const yt_video *v = &s->cfg.videos[i];
+    ft_rect title = {r.x + 14, r.y + r.h - 12 - 2 * font_label.line_height, r.w - 28, 2 * font_label.line_height};
+    unsigned h = 0;
+    const char *p;
+    ft_color tone;
+    char d[16];
+    for (p = v->id; *p; p++)
+        h = h * 31u + (unsigned char)*p;
+    tone = DEEP[h % 6];
+    art_slab(c, r, 14, color_mix(tone, COL_TEXT, 40), color_mix(tone, FT_RGB(0x000000), 110), focused, tx, ty);
+    art_glyph_3d(c, ART_PLAY, r.x + 36 + tx * 4 / 256, r.y + 34 + ty * 3 / 256, 18, COL_TEXT,
+                 color_mix(tone, FT_RGB(0x000000), 60));
+    if (v->live)
+        live_pill(c, r.x + r.w - 92, r.y + 12, s->cfg.lang);
+    else {
+        yt_duration(d, sizeof d, v->seconds);
+        if (d[0]) {
+            ft_rect chip = {0, r.y + 12, text_width(&font_caption, d) + 18, 26};
+            chip.x = r.x + r.w - 12 - chip.w;
+            canvas_round(c, chip, 8, 0xB3000000u);
+            canvas_text_center(c, &font_caption, chip, d, COL_TEXT);
+        }
+    }
+    canvas_text_wrap(c, &font_label, (ft_rect){title.x + 1, title.y + 2, title.w, title.h}, v->title, 0x99000000u);
+    canvas_text_wrap(c, &font_label, title, v->title, COL_TEXT);
+}
+
+/* Stands in for a YouTube row while it loads, or when nothing came. */
+static void loading_tile(ft_canvas *c, ft_rect r, const shell *s, shell_card k, int focused, int tx, int ty,
+                         const ui_motion *m)
+{
+    ft_rect line = {r.x + 16, r.y + r.h - 16 - 2 * font_body.line_height, r.w - 32, 2 * font_body.line_height};
+    art_slab(c, r, 14, FT_RGB(0x2A2E38), FT_RGB(0x14161B), focused, tx, ty);
+    if (s->cfg.yt_loading & (1u << k.arg))
+        spinner(c, r.x + r.w / 2, r.y + 40, 16, m ? m->ambient : 0);
+    else
+        art_glyph_3d(c, ART_PLAY, r.x + r.w / 2, r.y + 40, 18, COL_TEXT_2, FT_RGB(0x2A2E38));
+    canvas_text_wrap(c, &font_body, line, shell_card_label(s, k), COL_TEXT_2);
+}
+
+/* The YouTube search bar: glass, a magnifier and what was searched. */
+static void search_bar(ft_canvas *c, ft_rect r, const shell *s, int focused)
+{
+    const char *q = s->cfg.yt_query;
+    ft_color ink = focused ? COL_ON_FOCUS : COL_TEXT;
+    if (focused) {
+        canvas_shadow(c, (ft_rect){r.x + 8, r.y + 14, r.w - 16, r.h - 6}, 24, 0x99000000u);
+        art_slab(c, r, r.h / 2, FT_RGB(0xFFFFFF), FT_RGB(0xDDDFE5), 1, 0, 0);
+    } else {
+        canvas_round(c, r, r.h / 2, 0x991B1E28u);
+        canvas_round_stroke(c, r, r.h / 2, 1, 0x33FFFFFFu);
+        canvas_line(c, r.x + r.h / 2, r.y + 1, r.x + r.w - r.h / 2, r.y + 1, 1, 0x40FFFFFFu);
+    }
+    art_glyph(c, ART_SEARCH, r.x + 40, r.y + r.h / 2, 18, ink);
+    canvas_text_fit(c, &font_label, r.x + 76, r.y + (r.h - font_label.line_height) / 2, r.w - 120,
+                    q[0] ? q : tr(s->cfg.lang, STR_YT_SEARCH), q[0] ? ink : focused ? COL_ON_FOCUS_2 : COL_TEXT_3);
+}
+
+/* Under the card: what it is (games, apps) or what is on (sports). */
+static const char *card_caption(const shell *s, shell_card k)
+{
+    if (k.kind == CARD_APP)
+        return tr(s->cfg.lang, STR_OPENS_BROWSER);
+    if (k.kind == CARD_SPORT && k.arg >= 0 && k.arg < s->cfg.sports.n) {
+        const sport_status *st = &s->cfg.sport[k.arg];
+        return st->state == SPORT_LIVE || st->state == SPORT_UPCOMING ? st->title : "";
+    }
+    if (k.kind == CARD_FOUND && k.arg >= 0 && k.arg < s->cfg.nfound)
+        return s->cfg.found[k.arg].by;
+    if (k.kind == CARD_SEARCHING || k.kind == CARD_YT_LOADING)
+        return "";
+    if (k.kind == CARD_VIDEO)
+        return s->cfg.videos[k.arg].by;
+    return shell_card_label(s, k);
+}
+
+static ft_color card_accent(const shell *s, shell_card k)
+{
+    switch (k.kind) {
+    case CARD_CHANNEL: return s->cfg.channels.ch[k.arg].accent;
+    case CARD_APP: return FT_RGB(0xE50914);
+    case CARD_SPORT: return s->cfg.sports.ch[k.arg].accent;
+    case CARD_SPORTS:
+    case CARD_FOUND:
+    case CARD_SEARCHING: return FT_RGB(0x1C7A3C);
+    case CARD_VIDEO:
+    case CARD_YT_LOADING:
+    case CARD_YT_SEARCH: return FT_RGB(0xC4122F);
+    case CARD_ASK_PARENT:
+    case CARD_GAME:
+    case CARD_SETTINGS:
+    case CARD_PROFILE:
+    case CARD_ABOUT:
+    case CARD_NO_CHANNELS: break;
+    }
+    return art_accent(card_art(k));
+}
+
+/* The card itself, without its shadow or caption. */
+static void card_body(ft_canvas *c, ft_rect r, const shell *s, shell_card k, int focused, int tx, int ty,
+                      const ui_motion *m)
+{
+    if (k.kind == CARD_CHANNEL)
+        channel_card(c, r, &s->cfg.channels.ch[k.arg], focused, tx, ty);
+    else if (k.kind == CARD_SPORTS)
         sports_art(c, r, 14, s, 0);
     else if (k.kind == CARD_APP)
-        app_tile(c, r, k.arg, focused);
+        app_tile(c, r, k.arg, focused, tx, ty);
+    else if (k.kind == CARD_SPORT)
+        sport_tile(c, r, s, k.arg, focused, tx, ty);
+    else if (k.kind == CARD_FOUND)
+        found_tile(c, r, s, k.arg, focused, tx, ty);
+    else if (k.kind == CARD_SEARCHING)
+        searching_tile(c, r, s, focused, tx, ty, m);
+    else if (k.kind == CARD_VIDEO)
+        video_tile(c, r, s, k.arg, focused, tx, ty);
+    else if (k.kind == CARD_YT_LOADING)
+        loading_tile(c, r, s, k, focused, tx, ty, m);
     else
-        art_tile(c, r, 14, card_art(k), focused, NULL);
-    if (focused)
+        art_tile_lean(c, r, 14, card_art(k), focused, NULL, tx, ty);
+    if (focused && k.kind != CARD_CHANNEL)
         ring(c, r, 14);
-    canvas_text_fit(c, focused ? &font_label : &font_body, label.x, label.y, label.w,
-                    k.kind == CARD_APP ? tr(s->cfg.lang, STR_OPENS_BROWSER) : shell_card_label(s, k),
-                    focused ? COL_TEXT : COL_TEXT_2);
+}
+
+/* The focused card under the mouse pointer turns toward it in 3D: drawn on
+ * its own over a copy of what is behind it, then put on the page in
+ * perspective. The side under the pointer dips away, as if pressed. */
+#define TURN_X_MAX 175 /* about 10 degrees */
+#define TURN_Y_MAX 245 /* about 14 degrees */
+#define TURN_PAD 8     /* the focus ring sits outside the card */
+
+static void turned_card(ft_canvas *c, ft_rect r, const shell *s, shell_card k, int tx, int ty, const ui_motion *m)
+{
+    static uint32_t *buf;
+    static size_t cap;
+    ft_rect big = lift(r, TURN_PAD, TURN_PAD);
+    int k2 = c->scale, x0 = big.x * k2 / 2, y0 = big.y * k2 / 2, w = big.w * k2 / 2, h = big.h * k2 / 2, y, x;
+    ft_canvas t;
+    if ((size_t)w * (size_t)h > cap) {
+        uint32_t *nb = (uint32_t *)realloc(buf, (size_t)w * (size_t)h * sizeof *nb);
+        if (!nb) {
+            card_body(c, r, s, k, 1, tx, ty, m);
+            return;
+        }
+        buf = nb;
+        cap = (size_t)w * (size_t)h;
+    }
+    for (y = 0; y < h; y++) /* what is behind the card, so its edges blend */
+        for (x = 0; x < w; x++) {
+            int sx = x0 + x, sy = y0 + y;
+            buf[(long)y * w + x] = sx >= 0 && sy >= 0 && sx < c->w && sy < c->h ? c->px[(long)sy * c->stride + sx] : COL_BG;
+        }
+    canvas_init(&t, buf, w, h, w);
+    canvas_set_scale(&t, k2);
+    card_body(&t, (ft_rect){TURN_PAD, TURN_PAD, r.w, r.h}, s, k, 1, tx, ty, m);
+    canvas_turn(c, &t, x0, y0, (14 + TURN_PAD) * k2 / 2, ty * TURN_X_MAX / 256, -tx * TURN_Y_MAX / 256);
+}
+
+static void draw_card(ft_canvas *c, ft_rect r, const shell *s, shell_card k, int focused, const ui_motion *m)
+{
+    ft_rect label = {r.x, r.y + r.h + 14, r.w, font_label.line_height};
+    int tx, ty;
+    lean(m, focused, &tx, &ty);
+    if (k.kind != CARD_SEARCHING && k.kind != CARD_YT_LOADING)
+        float_card(c, r, card_accent(s, k), focused, tx, ty);
+    if (tx || ty)
+        turned_card(c, r, s, k, tx, ty, m);
+    else
+        card_body(c, r, s, k, focused, tx, ty, m);
+    if (k.kind != CARD_CHANNEL)
+        canvas_text_fit(c, focused ? &font_label : &font_body, label.x, label.y, label.w, card_caption(s, k),
+                        focused ? COL_TEXT : COL_TEXT_2);
 }
 
 static void hero(ft_canvas *c, ft_rect r, const shell *s, shell_card k, int focused)
@@ -631,11 +1015,11 @@ static void hero(ft_canvas *c, ft_rect r, const shell *s, shell_card k, int focu
     ft_lang L = s->cfg.lang;
     const channel *ch = k.kind == CARD_CHANNEL ? &s->cfg.channels.ch[k.arg] : NULL;
     ft_color accent = ch ? ch->accent : art_accent(ART_CHANNELS);
-    ft_rect sh = {r.x + 10, r.y + 22, r.w - 20, r.h - 10};
-    canvas_shadow(c, sh, 30, 0x99000000u);
-    canvas_round_gradient(c, r, 22, CORNERS_ALL, FT_RGB(0x1E2026), FT_RGB(0x131418));
+    float_card(c, r, accent, focused, 0, 0);
+    art_slab(c, r, 22, FT_RGB(0x23252C), FT_RGB(0x111216), focused, 0, 0);
     canvas_glow(c, r.x + r.w - 300, r.y + r.h / 2, 300, r.h / 2, color_alpha(accent, 0xC8));
-    art_glyph(c, ch ? ART_LIVE_TV : ART_CHANNELS, r.x + r.w - 300, r.y + r.h / 2, 56, 0xE6FFFFFFu);
+    art_glyph_3d(c, ch ? ART_LIVE_TV : ART_CHANNELS, r.x + r.w - 300, r.y + r.h / 2, 56, 0xF2FFFFFFu,
+                 color_mix(accent, FT_RGB(0x000000), 60));
     if (ch) {
         ft_rect badge = {r.x + 44, r.y + 32, 56, 40};
         ft_rect button = {r.x + 44, r.y + r.h - 74, 0, 48};
@@ -657,19 +1041,27 @@ static void hero(ft_canvas *c, ft_rect r, const shell *s, shell_card k, int focu
         canvas_round_stroke(c, r, 22, 3, COL_RING);
 }
 
+/* A list row: the focused one is a light slab floating above the page,
+ * the rest are glass with a bevel. */
+static void focus_row(ft_canvas *c, ft_rect r, int focused)
+{
+    if (focused) {
+        ft_rect big = lift(r, 8, 3);
+        ft_rect sh = {big.x + 8, big.y + 16, big.w - 16, big.h - 6};
+        canvas_shadow(c, sh, 24, 0x99000000u);
+        art_slab(c, big, 16, FT_RGB(0xFFFFFF), FT_RGB(0xDDDFE5), 1, 0, 0);
+    } else {
+        canvas_round(c, r, 14, COL_ROW);
+        canvas_line(c, r.x + 14, r.y + 1, r.x + r.w - 14, r.y + 1, 1, 0x1FFFFFFFu);
+    }
+}
+
 static void guide_row(ft_canvas *c, ft_rect r, const shell *s, int index, int focused)
 {
     const channel *ch = &s->cfg.channels.ch[index];
     ft_rect badge = {r.x + 12, r.y + 10, 56, 40};
     int ty = r.y + (r.h - font_label.line_height) / 2;
-    if (focused) {
-        ft_rect big = lift(r, 8, 3);
-        ft_rect sh = {big.x + 6, big.y + 12, big.w - 12, big.h - 6};
-        canvas_shadow(c, sh, 20, 0x8C000000u);
-        canvas_round(c, big, 16, COL_FOCUS_BG);
-    } else {
-        canvas_round(c, r, 14, COL_ROW);
-    }
+    focus_row(c, r, focused);
     number_badge(c, badge, ch, &font_label);
     canvas_text_fit(c, &font_label, r.x + 92, ty, r.w - 300, ch->name, focused ? COL_ON_FOCUS : COL_TEXT);
     canvas_text_right(c, &font_body, r.x + r.w - 28, r.y + (r.h - font_body.line_height) / 2, "YouTube",
@@ -700,8 +1092,10 @@ static ft_color home_accent(const shell *s, const shell_row *rows, int n)
     k = &rows[s->row].cards[s->col[s->row] < rows[s->row].n ? s->col[s->row] : 0];
     if (k->kind == CARD_CHANNEL)
         return s->cfg.channels.ch[k->arg].accent;
-    if (k->kind == CARD_SPORTS)
+    if (k->kind == CARD_SPORTS || k->kind == CARD_FOUND || k->kind == CARD_SEARCHING)
         return FT_RGB(0x1C7A3C);
+    if (k->kind == CARD_SPORT)
+        return s->cfg.sports.ch[k->arg].accent;
     if (k->kind == CARD_APP)
         return FT_RGB(0x8B1A1A);
     return art_accent(card_art(*k));
@@ -735,8 +1129,7 @@ static void home(ft_canvas *c, const shell *s, const char *clock_text, const ui_
             break;
         case ROW_BANNER: {
             ft_rect b = card_rect(s, rows, n, &g, i, 0, m);
-            ft_rect sh = {b.x + 10, b.y + 20, b.w - 20, b.h - 10};
-            canvas_shadow(c, sh, 28, 0x99000000u);
+            float_card(c, b, FT_RGB(0x1C7A3C), row_focus, 0, 0);
             sports_art(c, b, 22, s, 1);
             if (row_focus)
                 canvas_round_stroke(c, b, 22, 3, COL_RING);
@@ -744,6 +1137,9 @@ static void home(ft_canvas *c, const shell *s, const char *clock_text, const ui_
         }
         case ROW_GUIDE:
             guide_row(c, card_rect(s, rows, n, &g, i, 0, m), s, r->cards[0].arg, row_focus);
+            break;
+        case ROW_SEARCH:
+            search_bar(c, card_rect(s, rows, n, &g, i, 0, m), s, row_focus);
             break;
         case ROW_CARDS:
             /* Resting cards first, so the focused one lands on top. */
@@ -755,18 +1151,12 @@ static void home(ft_canvas *c, const shell *s, const char *clock_text, const ui_
                     break;
                 if (row_focus && j == col)
                     continue;
-                if (r->cards[j].kind == CARD_CHANNEL)
-                    channel_card(c, k, &s->cfg.channels.ch[r->cards[j].arg], 0);
-                else
-                    app_card(c, k, s, r->cards[j], 0);
+                draw_card(c, k, s, r->cards[j], 0, m);
             }
             if (row_focus && r->n > 0) {
                 ft_rect k = card_rect(s, rows, n, &g, i, col, m);
                 k = lift(k, k.w * zoom / (25 * MOTION_ZOOM_FULL), k.h * zoom / (25 * MOTION_ZOOM_FULL));
-                if (r->cards[col].kind == CARD_CHANNEL)
-                    channel_card(c, k, &s->cfg.channels.ch[r->cards[col].arg], 1);
-                else
-                    app_card(c, k, s, r->cards[col], 1);
+                draw_card(c, k, s, r->cards[col], 1, m);
             }
             break;
         }
@@ -808,14 +1198,7 @@ static void list_row(ft_canvas *c, ft_rect r, const char *text, int focused)
     char label[SHELL_LABEL_MAX], value[SHELL_LABEL_MAX];
     int value_w, ty;
     split_label(text, label, value, sizeof label);
-    if (focused) {
-        ft_rect big = lift(r, 8, 3);
-        ft_rect sh = {big.x + 6, big.y + 12, big.w - 12, big.h - 6};
-        canvas_shadow(c, sh, 20, 0x8C000000u);
-        canvas_round(c, big, 16, COL_FOCUS_BG);
-    } else {
-        canvas_round(c, r, 14, COL_ROW);
-    }
+    focus_row(c, r, focused);
     value_w = value[0] ? text_width(&font_body, value) : 0;
     ty = r.y + (r.h - font_label.line_height) / 2;
     canvas_text_fit(c, &font_label, r.x + 28, ty, r.w - 56 - (value_w ? value_w + 24 : 0), label,
@@ -844,8 +1227,7 @@ static void list(ft_canvas *c, const shell *s, const char *clock_text)
     canvas_text_wrap(c, &font_body, desc, tr(L, s->screen == SCR_SETTINGS ? STR_DESC_SETTINGS : STR_DESC_MORE),
                      COL_TEXT_2);
 
-    if (s->item >= LIST_VISIBLE)
-        first = s->item - LIST_VISIBLE + 1;
+    first = list_first(s->item);
     for (i = first; i < n && i < first + LIST_VISIBLE; i++)
         if (i != s->item)
             list_row(c, view_list_row_rect(i - first), labels[i], 0);
@@ -857,69 +1239,6 @@ static void list(ft_canvas *c, const shell *s, const char *clock_text)
         canvas_chevron(c, LIST_X + LIST_W / 2, LIST_TOP + LIST_VISIBLE * LIST_STEP + 2, 14, 4, 0, COL_TEXT_3);
     toast(c, s->status, 620);
     hint(c, tr(L, STR_HELP_LIST));
-}
-
-/* ---- Sports page --------------------------------------------------------- */
-
-static void sport_row(ft_canvas *c, ft_rect r, const shell *s, int i, int focused)
-{
-    const channel *ch = &s->cfg.sports.ch[i];
-    const sport_status *st = &s->cfg.sport[i];
-    ft_lang L = s->cfg.lang;
-    ft_rect badge = {r.x + 12, r.y + 12, 48, r.h - 24};
-    int tx = r.x + 76, tw = r.w - 100;
-    ft_color ink = focused ? COL_ON_FOCUS : COL_TEXT, ink2 = focused ? COL_ON_FOCUS_2 : COL_TEXT_2;
-    if (focused) {
-        ft_rect big = lift(r, 8, 3);
-        ft_rect sh = {big.x + 6, big.y + 12, big.w - 12, big.h - 6};
-        canvas_shadow(c, sh, 20, 0x8C000000u);
-        canvas_round(c, big, 16, COL_FOCUS_BG);
-    } else {
-        canvas_round(c, r, 14, COL_ROW);
-    }
-    number_badge(c, badge, ch, &font_body);
-    canvas_text_fit(c, &font_label, tx, r.y + 6, tw, ch->name, ink);
-    if (st->state == SPORT_LIVE) {
-        live_pill(c, tx, r.y + 34, L);
-        canvas_text_fit(c, &font_caption, tx + 72, r.y + 36, tw - 72, st->title, ink2);
-    } else if (st->state == SPORT_UPCOMING) {
-        char line[160];
-        snprintf(line, sizeof line, "%s: %s", tr(L, STR_COMING_UP), st->title);
-        canvas_text_fit(c, &font_caption, tx, r.y + 36, tw, line, ink2);
-    } else {
-        canvas_text_fit(c, &font_caption, tx, r.y + 36, tw,
-                        tr(L, st->state == SPORT_CHECKING ? STR_CHECKING : STR_NOTHING_LIVE),
-                        focused ? COL_ON_FOCUS_2 : COL_TEXT_3);
-    }
-}
-
-static void sports_page(ft_canvas *c, const shell *s, const char *clock_text)
-{
-    int order[CH_MAX], n = shell_sports_order(s, order), pos = 0, first, i;
-    ft_rect title = {0, 34, VIEW_W, font_title.line_height};
-    ft_rect hero_r = {96, 190, 360, 216};
-    ft_rect desc = {hero_r.x, hero_r.y + hero_r.h + 26, hero_r.w, 3 * font_body.line_height};
-    for (i = 0; i < n; i++)
-        if (order[i] == s->item)
-            pos = i;
-    backdrop(c, FT_RGB(0x1C7A3C), 260, 200, 0, NULL);
-    canvas_text_center(c, &font_title, title, tr(s->cfg.lang, STR_SPORTS), COL_TEXT);
-    top_bar(c, s, clock_text, 0, NULL);
-    canvas_shadow(c, (ft_rect){hero_r.x + 8, hero_r.y + 20, hero_r.w - 16, hero_r.h - 8}, 30, 0x99000000u);
-    sports_art(c, hero_r, 24, s, 0);
-    canvas_text_wrap(c, &font_body, desc, tr(s->cfg.lang, STR_SPORTS_LINE), COL_TEXT_2);
-    first = pos >= LIST_VISIBLE ? pos - LIST_VISIBLE + 1 : 0;
-    for (i = first; i < n && i < first + LIST_VISIBLE; i++)
-        if (i != pos)
-            sport_row(c, view_list_row_rect(i - first), s, order[i], 0);
-    if (n > 0)
-        sport_row(c, view_list_row_rect(pos - first), s, order[pos], 1);
-    if (first > 0)
-        canvas_chevron(c, LIST_X + LIST_W / 2, LIST_TOP - 18, 14, 4, 1, COL_TEXT_3);
-    if (first + LIST_VISIBLE < n)
-        canvas_chevron(c, LIST_X + LIST_W / 2, LIST_TOP + LIST_VISIBLE * LIST_STEP + 2, 14, 4, 0, COL_TEXT_3);
-    toast(c, s->status, 620);
-    hint(c, tr(s->cfg.lang, STR_HELP_SPORTS));
 }
 
 /* ---- PIN ---------------------------------------------------------------- */
@@ -971,6 +1290,56 @@ static void pin(ft_canvas *c, const shell *s, const char *clock_text)
     hint(c, tr(L, STR_HELP_PIN));
 }
 
+/* ---- search keyboard ---------------------------------------------------- */
+
+ft_rect view_key_rect(int key)
+{
+    int total = SHELL_KEY_COLS * KEY_W + (SHELL_KEY_COLS - 1) * KEY_GAP;
+    ft_rect r = {(VIEW_W - total) / 2 + key % SHELL_KEY_COLS * (KEY_W + KEY_GAP),
+                 KEYS_TOP + key / SHELL_KEY_COLS * (KEY_H + KEY_GAP), KEY_W, KEY_H};
+    return r;
+}
+
+/* Every key is a little slab; the focused one lifts and lights up. */
+static void keyboard(ft_canvas *c, const shell *s, const char *clock_text)
+{
+    ft_lang L = s->cfg.lang;
+    ft_rect title = {0, 110, VIEW_W, font_title.line_height};
+    ft_rect field = {VIEW_MARGIN + 120, 170, VIEW_W - 2 * VIEW_MARGIN - 240, 72};
+    const char *q = s->cfg.yt_query;
+    int i, tw;
+    backdrop(c, FT_RGB(0xC4122F), 640, 120, 0, NULL);
+    top_bar(c, s, clock_text, 0, NULL);
+    canvas_text_center(c, &font_title, title, tr(L, STR_YT_SEARCH), COL_TEXT);
+    canvas_shadow(c, (ft_rect){field.x + 8, field.y + 14, field.w - 16, field.h - 6}, 24, 0x99000000u);
+    art_slab(c, field, 20, FT_RGB(0x2C2F38), FT_RGB(0x16181D), 1, 0, 0);
+    art_glyph(c, ART_SEARCH, field.x + 42, field.y + field.h / 2, 20, COL_TEXT_2);
+    canvas_text_fit(c, &font_display, field.x + 80, field.y + (field.h - font_display.line_height) / 2, field.w - 120,
+                    q[0] ? q : tr(L, STR_YT_TYPE_HINT), q[0] ? COL_TEXT : COL_TEXT_3);
+    tw = q[0] ? text_width(&font_display, q) : -6;
+    if (q[0] && field.x + 84 + tw < field.x + field.w - 30) /* the caret */
+        canvas_fill(c, (ft_rect){field.x + 84 + tw, field.y + 16, 3, field.h - 32}, 0xE6FFFFFFu);
+    for (i = 0; i < SHELL_KEYS; i++) {
+        ft_rect r = view_key_rect(i);
+        int focused = i == s->item, wide = i >= KEY_SPACE;
+        ft_color top = i == KEY_SEARCH ? FT_RGB(0xE53950) : FT_RGB(0x3A3E4A);
+        ft_color bottom = i == KEY_SEARCH ? FT_RGB(0x9C0F28) : FT_RGB(0x1F2229);
+        if (focused) {
+            r = lift(r, 5, 5);
+            canvas_shadow(c, (ft_rect){r.x + 6, r.y + 14, r.w - 12, r.h - 6}, 20, 0xB3000000u);
+            if (i != KEY_SEARCH) {
+                top = FT_RGB(0xFFFFFF);
+                bottom = FT_RGB(0xDADCE2);
+            }
+        }
+        art_slab(c, r, 12, top, bottom, focused, 0, 0);
+        canvas_text_center(c, wide ? &font_body : &font_title, r, shell_key_label(s, i),
+                           focused && i != KEY_SEARCH ? COL_ON_FOCUS : COL_TEXT);
+    }
+    toast(c, s->status, 620);
+    hint(c, tr(L, STR_HELP_KEYBOARD));
+}
+
 void view_shell(ft_canvas *c, const shell *s, const char *clock_text)
 {
     view_shell_motion(c, s, clock_text, NULL);
@@ -980,10 +1349,10 @@ void view_shell_motion(ft_canvas *c, const shell *s, const char *clock_text, con
 {
     if (s->screen == SCR_HOME)
         home(c, s, clock_text, m);
-    else if (s->screen == SCR_SPORTS)
-        sports_page(c, s, clock_text);
     else if (s->screen == SCR_PIN)
         pin(c, s, clock_text);
+    else if (s->screen == SCR_KEYBOARD)
+        keyboard(c, s, clock_text);
     else
         list(c, s, clock_text);
 }
@@ -994,18 +1363,6 @@ ft_rect view_live_panel_row_rect(int visible_row)
 {
     ft_rect r = {24, PANEL_TOP + visible_row * PANEL_STEP, PANEL_W - 48, PANEL_STEP - 8};
     return r;
-}
-
-static void spinner(ft_canvas *c, int cx, int cy, int radius, uint32_t anim_ms)
-{
-    static const int DX[8] = {0, 707, 1000, 707, 0, -707, -1000, -707};
-    static const int DY[8] = {-1000, -707, 0, 707, 1000, 707, 0, -707};
-    int head = (int)(anim_ms / 110 % 8), i;
-    for (i = 0; i < 8; i++) {
-        int age = (head - i + 8) % 8;
-        canvas_circle(c, cx + DX[i] * radius / 1000, cy + DY[i] * radius / 1000, radius / 5,
-                      color_alpha(COL_TEXT, (unsigned)(255 - age * 28)));
-    }
 }
 
 static void error_text(const player_status *ps, ft_str *title, ft_str *line)

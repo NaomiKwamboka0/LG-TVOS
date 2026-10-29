@@ -5,7 +5,8 @@
  * should be (ui_targets); the motion eases the drawn positions towards
  * that, frame by frame, so rows slide, the page scrolls, the tab
  * highlight glides and the focused card grows instead of jumping. Also
- * keeps the clock of the moving background. Integer maths, no state in
+ * keeps the clock of the moving background and leans the focused card
+ * toward the mouse pointer. Integer maths, no state in
  * the views: they draw whatever the motion says. */
 
 #include <stdint.h>
@@ -19,6 +20,9 @@ typedef struct {
     int row_x[SHELL_MAX_ROWS]; /* sideways scroll of each row, logical px */
     int tab_x, tab_w;          /* the tab highlight */
     int focus_key;             /* which card the focus is on (tab, row, column) */
+    /* The focused card leans toward the mouse pointer: where the pointer is
+     * across it, -256 (left/top edge) .. 256 (right/bottom); 0 = upright. */
+    int tilt_x, tilt_y;
 } ui_targets;
 
 typedef struct {

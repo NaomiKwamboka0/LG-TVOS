@@ -35,4 +35,32 @@ int sports_order(const sport_status *st, int n, int *order);
 /* Watch address for channel url: the live stream itself when known. */
 const char *sport_watch_url(const sport_status *st, const char *channel_url, char *out, size_t n);
 
+/* ---- "Live football now": YouTube's own live search ------------------------
+ * Most live "football" results are not football matches: American football,
+ * school games from look-alike channels, video-game "simulations", 24/7
+ * talk and replays. Only streams that look like a match ("A vs B") or a
+ * watch-along of one are kept, busiest first. They are not vetted, so the
+ * shell shows them to parents only. */
+#define SPORT_FOUND_MAX 12
+#define SPORT_BY_MAX 32
+#define SPORT_SEARCHES 2
+#define SPORT_SEARCH_ITEMS 25
+#define SPORT_SEARCH_FORMAT "%(live_status)s\t%(id)s\t%(concurrent_view_count)s\t%(channel)s\t%(title)s"
+
+typedef struct {
+    char video_id[SPORT_ID_MAX];
+    char by[SPORT_BY_MAX];         /* the channel streaming it */
+    char title[SPORT_TITLE_MAX];
+    int viewers;                   /* watching now; 0 when YouTube does not say */
+} sport_found;
+
+/* The i-th search page (0..SPORT_SEARCHES-1): live videos only. */
+const char *sport_search_url(int i, char *out, size_t n);
+/* 1 if a search result (title, channel name) looks like live football. */
+int sport_is_football(const char *title, const char *by);
+/* Adds the football matches from lines of SPORT_SEARCH_FORMAT to found
+ * (n so far), skipping repeats; keeps the busiest SPORT_FOUND_MAX.
+ * Returns the new count. */
+int sport_add_found(sport_found *found, int n, const char *lines);
+
 #endif

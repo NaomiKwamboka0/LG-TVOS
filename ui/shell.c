@@ -4,7 +4,10 @@
 #include <string.h>
 
 static const ft_str GAME_NAME[GAME_COUNT] = {STR_GAME_RACER, STR_GAME_PENALTY, STR_GAME_GARDEN};
-static const ft_str TAB_NAME[TAB_COUNT] = {STR_FOR_YOU, STR_LIVE_TV, STR_APPS};
+static const ft_str TAB_NAME[TAB_COUNT] = {STR_FOR_YOU, STR_LIVE_TV, STR_SPORTS, STR_YOUTUBE, STR_APPS};
+static const ft_str FEED_NAME[YT_FEEDS] = {STR_YT_RESULTS, STR_YT_FOOTBALL, STR_YT_KENYA, STR_YT_MUSIC,
+                                          STR_YT_COMEDY};
+static const char KEY_CHARS[] = "abcdefghijklmnopqrstuvwxyz0123456789";
 static const ft_str QUALITY_LABEL[] = {STR_QUALITY_360, STR_QUALITY_480, STR_QUALITY_720, STR_QUALITY_1080};
 static const char *const APP_NAME[APP_COUNT] = {"Netflix", "YouTube"};
 static const char *const APP_URL[APP_COUNT] = {"https://www.netflix.com/browse", "https://www.youtube.com/"};
@@ -54,6 +57,16 @@ const char *shell_card_label(const shell *s, shell_card c)
     case CARD_NO_CHANNELS: return tr(L, STR_NO_CHANNELS);
     case CARD_SPORTS: return tr(L, STR_SPORTS);
     case CARD_APP: return shell_app_name(c.arg);
+    case CARD_SPORT: return c.arg >= 0 && c.arg < s->cfg.sports.n ? s->cfg.sports.ch[c.arg].name : "?";
+    case CARD_FOUND: return c.arg >= 0 && c.arg < s->cfg.nfound ? s->cfg.found[c.arg].title : "?";
+    case CARD_SEARCHING: return tr(L, s->cfg.searching ? STR_SEARCHING : STR_NONE_FOUND);
+    case CARD_YT_SEARCH: return s->cfg.yt_query[0] ? s->cfg.yt_query : tr(L, STR_YT_SEARCH);
+    case CARD_VIDEO:
+        return c.arg >= 0 && c.arg < YT_FEEDS * YT_FEED_MAX ? s->cfg.videos[c.arg].title : "?";
+    case CARD_YT_LOADING:
+        return tr(L, c.arg >= 0 && c.arg < YT_FEEDS && (s->cfg.yt_loading & (1u << c.arg)) ? STR_YT_LOADING
+                                                                                             : STR_YT_NOTHING);
+    case CARD_ASK_PARENT: return tr(L, STR_YT_ASK);
     }
     return "?";
 }
@@ -167,6 +180,60 @@ static void games_row(const shell *s, shell_row *out, int *n, int max)
         (*n)--; /* a child with every game blocked sees no empty row */
 }
 
+/* Live official matches, the live football search (parents only: the
+ * streams are not vetted), what is coming up, then every sports channel. */
+static void sports_rows(const shell *s, shell_row *out, int *n, int max)
+{
+    int order[CH_MAX], k = shell_sports_order(s, order), i;
+    shell_row *r = NULL;
+    for (i = 0; i < k && s->cfg.sport[order[i]].state == SPORT_LIVE; i++) {
+        if (!r)
+            r = new_row(out, n, max, ROW_CARDS, STR_ON_NOW);
+        put(r, CARD_SPORT, order[i]);
+    }
+    if (s->cfg.profile == PROFILE_PARENT) {
+        r = new_row(out, n, max, ROW_CARDS, STR_LIVE_FOOTBALL);
+        for (i = 0; i < s->cfg.nfound; i++)
+            put(r, CARD_FOUND, i);
+        if (s->cfg.nfound == 0)
+            put(r, CARD_SEARCHING, 0);
+    }
+    r = NULL;
+    for (i = 0; i < k; i++)
+        if (s->cfg.sport[order[i]].state == SPORT_UPCOMING) {
+            if (!r)
+                r = new_row(out, n, max, ROW_CARDS, STR_COMING_UP);
+            put(r, CARD_SPORT, order[i]);
+        }
+    if (k > 0) {
+        r = new_row(out, n, max, ROW_CARDS, STR_SPORTS_CHANNELS);
+        for (i = 0; i < k; i++)
+            put(r, CARD_SPORT, order[i]);
+    }
+}
+
+/* The search bar, then the results of the family's search, then the
+ * ready-made rows. YouTube reaches everything: parents only. */
+static void youtube_rows(const shell *s, shell_row *out, int *n, int max)
+{
+    shell_row *r;
+    int f, i;
+    if (s->cfg.profile != PROFILE_PARENT) {
+        put(new_row(out, n, max, ROW_CARDS, STR_YOUTUBE), CARD_ASK_PARENT, 0);
+        return;
+    }
+    put(new_row(out, n, max, ROW_SEARCH, STR_COUNT), CARD_YT_SEARCH, 0);
+    for (f = 0; f < YT_FEEDS; f++) {
+        if (f == 0 && !s->cfg.yt_query[0])
+            continue;
+        r = new_row(out, n, max, ROW_CARDS, FEED_NAME[f]);
+        for (i = 0; i < s->cfg.nvideos[f] && i < YT_FEED_MAX; i++)
+            put(r, CARD_VIDEO, f * YT_FEED_MAX + i);
+        if (s->cfg.nvideos[f] == 0)
+            put(r, CARD_YT_LOADING, f);
+    }
+}
+
 int shell_home_rows(const shell *s, shell_row *out, int max)
 {
     const channel_list *chs = &s->cfg.channels;
@@ -201,6 +268,12 @@ int shell_home_rows(const shell *s, shell_row *out, int max)
             r = new_row(out, &n, max, ROW_GUIDE, i == 0 ? STR_ALL_CHANNELS : STR_COUNT);
             put(r, CARD_CHANNEL, i);
         }
+        break;
+    case TAB_SPORTS:
+        sports_rows(s, out, &n, max);
+        break;
+    case TAB_YOUTUBE:
+        youtube_rows(s, out, &n, max);
         break;
     case TAB_APPS:
         games_row(s, out, &n, max);
@@ -277,7 +350,7 @@ static int items(const shell *s, item *out, int max)
         break;
     case SCR_HOME:
     case SCR_PIN:
-    case SCR_SPORTS:
+    case SCR_KEYBOARD:
         break;
     }
     return n;
@@ -299,7 +372,6 @@ const char *shell_screen_title(const shell *s)
     ft_lang L = s->cfg.lang;
     switch (s->screen) {
     case SCR_MORE: return tr(L, STR_SETTINGS);
-    case SCR_SPORTS: return tr(L, STR_SPORTS);
     case SCR_SETTINGS: return tr(L, STR_PARENT_SETTINGS);
     case SCR_PIN:
         switch (s->pin_for) {
@@ -309,6 +381,7 @@ const char *shell_screen_title(const shell *s)
         case PIN_FOR_SETTINGS: break;
         }
         return tr(L, STR_PIN_ENTER);
+    case SCR_KEYBOARD: return tr(L, STR_YT_SEARCH);
     case SCR_HOME: break;
     }
     return tr(L, STR_FAMILY_TV);
@@ -340,8 +413,15 @@ static shell_action card_action(shell_card c)
     case CARD_PROFILE: a.act = ACT_SWITCH_PROFILE; break;
     case CARD_ABOUT: a.act = ACT_ABOUT; break;
     case CARD_APP: a.act = ACT_OPEN_APP; break;
+    case CARD_SPORT: a.act = ACT_PLAY_SPORT; break;
+    case CARD_FOUND: a.act = ACT_PLAY_FOUND; break;
+    case CARD_VIDEO: a.act = ACT_PLAY_VIDEO; break;
     case CARD_NO_CHANNELS:
-    case CARD_SPORTS: break;
+    case CARD_SPORTS:
+    case CARD_SEARCHING:
+    case CARD_YT_SEARCH:
+    case CARD_YT_LOADING:
+    case CARD_ASK_PARENT: break;
     }
     a.arg = c.arg;
     return a;
@@ -401,9 +481,16 @@ static shell_action home_key(shell *s, ft_key k)
     } else if (k == FT_DOWN && s->row < nrows - 1) {
         s->row++;
     } else if (k == FT_OK && r->n > 0 && r->cards[*col].kind == CARD_SPORTS) {
-        int order[CH_MAX];
-        s->screen = SCR_SPORTS;
-        s->item = shell_sports_order(s, order) > 0 ? order[0] : 0;
+        select_tab(s, TAB_SPORTS); /* the banner and the Apps tile lead to the Sports tab */
+        s->top = TAB_SPORTS;
+        s->row = 0;
+    } else if (k == FT_OK && r->n > 0 && r->cards[*col].kind == CARD_APP && r->cards[*col].arg == APP_YOUTUBE) {
+        select_tab(s, TAB_YOUTUBE); /* YouTube lives inside Family TV */
+        s->top = TAB_YOUTUBE;
+        s->row = 0;
+    } else if (k == FT_OK && r->n > 0 && r->cards[*col].kind == CARD_YT_SEARCH) {
+        s->screen = SCR_KEYBOARD;
+        s->item = 0;
     } else if (k == FT_OK && r->n > 0) {
         a = card_action(r->cards[*col]);
     } else if (k == FT_BACK) {
@@ -413,24 +500,111 @@ static shell_action home_key(shell *s, ft_key k)
     return a;
 }
 
-/* Up and Down follow the page order, which changes as live results come
- * in; the focus stays on the same channel meanwhile. */
-static shell_action sports_key(shell *s, ft_key k)
+/* ---- search keyboard ---------------------------------------------------- */
+
+const char *shell_key_label(const shell *s, int key)
+{
+    static char one[SHELL_KEYS][2];
+    ft_lang L = s->cfg.lang;
+    switch (key) {
+    case KEY_SPACE: return tr(L, STR_KEY_SPACE);
+    case KEY_DELETE: return tr(L, STR_KEY_DELETE);
+    case KEY_CLEAR: return tr(L, STR_KEY_CLEAR);
+    case KEY_SEARCH: return tr(L, STR_KEY_SEARCH);
+    }
+    if (key < 0 || key >= KEY_SPACE)
+        return "";
+    one[key][0] = KEY_CHARS[key];
+    one[key][1] = '\0';
+    return one[key];
+}
+
+/* Search: back to the YouTube tab, on the results row. */
+static shell_action search(shell *s)
 {
     shell_action a = {ACT_NONE, 0};
-    int order[CH_MAX], n = shell_sports_order(s, order), pos = 0, i;
-    for (i = 0; i < n; i++)
-        if (order[i] == s->item)
-            pos = i;
-    if (k == FT_UP && pos > 0)
-        s->item = order[pos - 1];
-    else if (k == FT_DOWN && pos < n - 1)
-        s->item = order[pos + 1];
-    else if (k == FT_OK && n > 0) {
-        a.act = ACT_PLAY_SPORT;
-        a.arg = s->item;
-    } else if (k == FT_BACK)
+    char q[YT_QUERY_MAX];
+    yt_clean_query(q, sizeof q, s->cfg.yt_query);
+    if (!q[0])
+        return a;
+    memcpy(s->cfg.yt_query, q, sizeof q);
+    s->screen = SCR_HOME;
+    select_tab(s, TAB_YOUTUBE);
+    s->top = TAB_YOUTUBE;
+    s->row = 1;
+    s->col[1] = 0;
+    s->cfg.nvideos[0] = 0;
+    s->cfg.yt_loading |= 1u;
+    a.act = ACT_YT_SEARCH;
+    return a;
+}
+
+static void type_char(shell *s, char c)
+{
+    size_t len = strlen(s->cfg.yt_query);
+    if (len + 1 < sizeof s->cfg.yt_query && !(c == ' ' && (len == 0 || s->cfg.yt_query[len - 1] == ' '))) {
+        s->cfg.yt_query[len] = c;
+        s->cfg.yt_query[len + 1] = '\0';
+    }
+}
+
+static shell_action press_key(shell *s, int key)
+{
+    size_t len = strlen(s->cfg.yt_query);
+    shell_action a = {ACT_NONE, 0};
+    if (key == KEY_SEARCH)
+        return search(s);
+    if (key == KEY_DELETE && len > 0)
+        s->cfg.yt_query[len - 1] = '\0';
+    else if (key == KEY_CLEAR)
+        s->cfg.yt_query[0] = '\0';
+    else if (key == KEY_SPACE)
+        type_char(s, ' ');
+    else if (key >= 0 && key < KEY_SPACE)
+        type_char(s, KEY_CHARS[key]);
+    return a;
+}
+
+static shell_action keyboard_key(shell *s, ft_key k)
+{
+    int col = s->item % SHELL_KEY_COLS, row = s->item / SHELL_KEY_COLS;
+    shell_action a = {ACT_NONE, 0};
+    if (k == FT_LEFT && col > 0)
+        s->item--;
+    else if (k == FT_RIGHT && col < SHELL_KEY_COLS - 1)
+        s->item++;
+    else if (k == FT_UP && row > 0)
+        s->item -= SHELL_KEY_COLS;
+    else if (k == FT_DOWN && row < SHELL_KEYS / SHELL_KEY_COLS - 1)
+        s->item += SHELL_KEY_COLS;
+    else if (k == FT_OK)
+        a = press_key(s, s->item);
+    else if (k == FT_BACK) {
         s->screen = SCR_HOME;
+        s->row = 0;
+    }
+    return a;
+}
+
+shell_action shell_type(shell *s, int ch)
+{
+    shell_action a = {ACT_NONE, 0};
+    if (s->screen == SCR_HOME && s->tab == TAB_YOUTUBE && s->cfg.profile == PROFILE_PARENT &&
+        ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9'))) {
+        s->screen = SCR_KEYBOARD; /* typing on the YouTube tab starts a search */
+        s->item = 0;
+        s->cfg.yt_query[0] = '\0';
+    }
+    if (s->screen != SCR_KEYBOARD)
+        return a;
+    if (ch == '\n')
+        return search(s);
+    if (ch == '\b')
+        return press_key(s, KEY_DELETE);
+    if (ch == ' ' || (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'z'))
+        type_char(s, (char)ch);
+    else if (ch >= 'A' && ch <= 'Z')
+        type_char(s, (char)(ch - 'A' + 'a'));
     return a;
 }
 
@@ -462,19 +636,56 @@ static shell_action pin_key(shell *s, ft_key k)
     return a;
 }
 
+void shell_focus_top(shell *s, int item)
+{
+    if (s->screen != SCR_HOME || item < 0 || item >= TOP_COUNT)
+        return;
+    s->row = -1;
+    s->top = item;
+    if (item < TAB_COUNT)
+        select_tab(s, item);
+}
+
+void shell_focus_card(shell *s, int row, int col)
+{
+    shell_row rows[SHELL_MAX_ROWS];
+    int n = shell_home_rows(s, rows, SHELL_MAX_ROWS);
+    if (s->screen != SCR_HOME || row < 0 || row >= n || col < 0 || col >= rows[row].n)
+        return;
+    s->row = row;
+    s->col[row] = col;
+}
+
+void shell_focus_item(shell *s, int item)
+{
+    if (s->screen == SCR_PIN) {
+        if (item >= 0 && item < SHELL_PIN_DIGITS)
+            s->pin_pos = item;
+        return;
+    }
+    if (s->screen == SCR_KEYBOARD && item >= 0 && item < SHELL_KEYS)
+        s->item = item;
+    else if (s->screen != SCR_HOME && s->screen != SCR_KEYBOARD && item >= 0 && item < SHELL_MAX_ITEMS)
+        s->item = item;
+}
+
 shell_action shell_key(shell *s, ft_key k)
 {
     shell_action a = {ACT_NONE, 0};
     item it[SHELL_MAX_ITEMS];
     int n;
 
+    if (k == FT_WHEEL_UP || k == FT_WHEEL_DOWN) /* rows, list rows, PIN digits: as Up and Down */
+        k = k == FT_WHEEL_UP ? FT_UP : FT_DOWN;
+    if (k != FT_LEFT && k != FT_RIGHT && k != FT_UP && k != FT_DOWN && k != FT_OK && k != FT_BACK)
+        return a; /* pointer moves and clicks are placed by shell_focus_* first */
     s->status[0] = '\0';
     if (s->screen == SCR_HOME)
         return home_key(s, k);
     if (s->screen == SCR_PIN)
         return pin_key(s, k);
-    if (s->screen == SCR_SPORTS)
-        return sports_key(s, k);
+    if (s->screen == SCR_KEYBOARD)
+        return keyboard_key(s, k);
 
     n = items(s, it, SHELL_MAX_ITEMS);
     if (k == FT_UP && s->item > 0) {

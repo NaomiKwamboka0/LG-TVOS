@@ -29,13 +29,13 @@ static live_action tune_now(live *l, int ch)
 
 static live_action panel_key(live *l, ft_key k)
 {
-    if (k == FT_UP && l->panel_item > 0)
+    if ((k == FT_UP || k == FT_WHEEL_UP) && l->panel_item > 0)
         l->panel_item--;
-    else if (k == FT_DOWN && l->panel_item < l->nch - 1)
+    else if ((k == FT_DOWN || k == FT_WHEEL_DOWN) && l->panel_item < l->nch - 1)
         l->panel_item++;
     else if (k == FT_BACK || k == FT_LEFT)
         l->panel_open = 0;
-    else if (k == FT_OK) {
+    else if (k == FT_OK || k == FT_CLICK) { /* a click lands on panel_item, set by the caller */
         l->panel_open = 0;
         if (l->panel_item != l->current || l->tune_wait_ms > 0)
             return tune_now(l, l->panel_item);
@@ -65,7 +65,14 @@ live_action live_key(live *l, ft_key k, int error_card)
         l->volume = l->volume < 0 ? 0 : l->volume > 100 ? 100 : l->volume;
         l->volume_ms = LIVE_VOLUME_MS;
         return act(LIVE_ACT_VOLUME, l->volume);
+    case FT_POINT: /* the mouse moved: say what is on, as any key would */
+        l->banner_ms = LIVE_BANNER_MS;
+        break;
+    case FT_WHEEL_UP:
+    case FT_WHEEL_DOWN:
+        return live_key(l, k == FT_WHEEL_UP ? FT_RIGHT : FT_LEFT, error_card); /* the wheel is volume */
     case FT_OK:
+    case FT_CLICK:
         if (error_card && l->tune_wait_ms == 0)
             return tune_now(l, l->current);
         l->panel_open = 1;
@@ -75,6 +82,7 @@ live_action live_key(live *l, ft_key k, int error_card)
     case FT_BACK:
         return act(LIVE_ACT_EXIT, 0);
     case FT_NONE:
+    case FT_TEXT:
         break;
     }
     return act(LIVE_ACT_NONE, 0);

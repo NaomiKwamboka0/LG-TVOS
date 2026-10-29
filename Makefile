@@ -8,7 +8,7 @@ INC := -Igames -Iui -Iplatform -Iservices -Imedia -Isim -Ithird_party/monocypher
 
 CORE_SRC := games/common.c games/save.c games/racer.c games/penalty.c games/garden.c \
             ui/shell.c services/i18n.c services/pin.c services/playtime.c services/settings.c \
-            services/session.c services/channels.c services/prefs.c services/sports.c third_party/monocypher/monocypher.c \
+            services/session.c services/channels.c services/prefs.c services/sports.c services/youtube.c third_party/monocypher/monocypher.c \
             ui/canvas.c ui/font_ui_data.c ui/font_scale.c ui/art.c ui/view.c ui/live.c ui/motion.c platform/desktop.c \
             media/player.c media/player_stub.c
 CORE_HDR := $(wildcard games/*.h ui/*.h platform/*.h services/*.h media/*.h sim/*.h third_party/monocypher/*.h)
@@ -22,7 +22,7 @@ ifeq ($(OS),Windows_NT)
 # Native MSYS2 UCRT64 build: make test window. The terminal frontend needs
 # termios, so Windows gets the window only.
 SAN :=
-SYS_LIBS := -lbcrypt
+SYS_LIBS := -lbcrypt -lshell32
 TERM_SRC :=
 endif
 SIM_SRC := $(CORE_SRC) sim/render_text.c $(TERM_SRC) sim/main.c
@@ -75,7 +75,7 @@ run: window
 window-smoke: window
 	rm -rf $(OUT)/wsmoke $(OUT)/wsmoke*.ppm
 	SDL_VIDEODRIVER=dummy $(OUT)/host/familytv --data $(OUT)/wsmoke \
-	  --dump-frame $(OUT)/wsmoke.ppm --keys BACK,R,R,D,R,OK,OK,OK,W90
+	  --dump-frame $(OUT)/wsmoke.ppm --keys BACK,R,R,R,R,D,R,OK,OK,OK,W90
 	SDL_VIDEODRIVER=dummy $(OUT)/host/familytv --data $(OUT)/wsmoke \
 	  --dump-frame $(OUT)/wsmoke-live.ppm --keys OK,W60,U,W
 	python3 -I tools/ppm2png.py $(OUT) $(OUT)/wsmoke.ppm $(OUT)/wsmoke-live.ppm > /dev/null
@@ -88,12 +88,12 @@ window-smoke: window
 smoke: term
 	rm -rf $(OUT)/smoke1 $(OUT)/smoke2
 	$(OUT)/host/familytv-term --data $(OUT)/smoke1 \
-	  --keys OK,W60,U,W30,BACK,BACK,R,R,D,OK,OK,W60,BACK,BACK > $(OUT)/smoke1.txt
+	  --keys OK,W60,U,W30,BACK,BACK,R,R,R,R,D,OK,OK,W60,BACK,BACK > $(OUT)/smoke1.txt
 	grep -q "Citizen TV.*Playing" $(OUT)/smoke1.txt
 	grep -q "NTV Kenya.*Playing" $(OUT)/smoke1.txt
 	grep -q "Family Racer" $(OUT)/smoke1.txt
 	$(OUT)/host/familytv-term --data $(OUT)/smoke2 \
-	  --keys BACK,R,R,R,OK,D,OK,OK,OK,OK,OK,OK,OK,OK,OK,OK > $(OUT)/smoke2.txt
+	  --keys BACK,R,R,R,R,R,OK,D,OK,OK,OK,OK,OK,OK,OK,OK,OK,OK > $(OUT)/smoke2.txt
 	grep -q "Choose a new 4-digit parent PIN" $(OUT)/smoke2.txt
 	grep -q "Parent PIN saved" $(OUT)/smoke2.txt
 	grep -q "Lugha: Kiswahili" $(OUT)/smoke2.txt
@@ -199,7 +199,7 @@ $(WIN_DIR)/FamilyTV.exe: $(WIN_SRC) $(CORE_HDR) $(WIN_OUT)/familytv-res.o
 	@test -f deps/sdl2/.ok -a -f deps/mpv/.ok || { echo "Windows libraries missing: make win-deps"; exit 1; }
 	mkdir -p $(WIN_DIR)
 	$(WIN_CC) $(WIN_FLAGS) -mwindows -static-libgcc -o $@ $(WIN_SRC) $(WIN_OUT)/familytv-res.o \
-	  -L$(WIN_SDL)/lib -L$(WIN_MPV) -lSDL2 -lmpv -lbcrypt
+	  -L$(WIN_SDL)/lib -L$(WIN_MPV) -lSDL2 -lmpv -lbcrypt -lshell32
 
 win: $(WIN_DIR)/FamilyTV.exe
 	@test -f deps/yt-dlp/.ok -a -f deps/deno/.ok || { echo "yt-dlp or deno missing: make win-deps"; exit 1; }
@@ -287,7 +287,7 @@ mac-check: mac-app
 	@test "$$(cat $(MAC_OUT)/minos.txt)" -le 15 || { echo "needs macOS $$(cat $(MAC_OUT)/minos.txt), Info.plist says 15.0"; exit 1; }
 	codesign --verify --deep --strict "$(MAC_APP)"
 	SDL_VIDEODRIVER=dummy "$(MAC_C)/MacOS/FamilyTV" --data $(MAC_OUT)/smoke \
-	  --dump-frame $(MAC_OUT)/smoke.ppm --keys BACK,R,R,D,R,OK,OK,OK,W90
+	  --dump-frame $(MAC_OUT)/smoke.ppm --keys BACK,R,R,R,R,D,R,OK,OK,OK,W90
 	@echo "mac-check: OK ($$(ls "$(MAC_C)/Frameworks" | wc -l | tr -d ' ') libraries bundled)"
 
 mac-dmg: mac-check

@@ -123,6 +123,16 @@ static void setup(void)
     set_sport(&sports, 6, SPORT_UPCOMING, "Charlton Athletic v Chelsea | Barclays WSL");
     set_sport(&sports, 0, SPORT_CHECKING, "");
     sports.row = 2;
+    sports.cfg.nfound = 3; /* example "Live football now" results (made-up streams) */
+    snprintf(sports.cfg.found[0].title, sizeof sports.cfg.found[0].title, "Gor Mahia vs AFC Leopards | Derby watch along");
+    snprintf(sports.cfg.found[0].by, sizeof sports.cfg.found[0].by, "Kenyan Football Live");
+    sports.cfg.found[0].viewers = 12400;
+    snprintf(sports.cfg.found[1].title, sizeof sports.cfg.found[1].title, "Harambee Stars vs Uganda | Qualifier");
+    snprintf(sports.cfg.found[1].by, sizeof sports.cfg.found[1].by, "East Africa Football");
+    sports.cfg.found[1].viewers = 5300;
+    snprintf(sports.cfg.found[2].title, sizeof sports.cfg.found[2].title, "Tusker vs Shabana | Premier League");
+    snprintf(sports.cfg.found[2].by, sizeof sports.cfg.found[2].by, "Matchday Kenya");
+    sports.cfg.found[2].viewers = 860;
 
     shell_init(&parents, &c);
     shell_open_pin(&parents, PIN_FOR_SETTINGS);
@@ -202,12 +212,12 @@ static void step(uint32_t prev, uint32_t t)
         player_pump(stub, 2000 + (t - T_LIVE));
     }
     if (t >= T_SPORTS && t < T_GAMES) {
-        if (prev < T_SPORTS + 1700 && t >= T_SPORTS + 1700) {
-            sports.screen = SCR_SPORTS;
-            sports.item = 0;
-        }
-        if (sports.screen == SCR_SPORTS)
-            sports.item = t < T_SPORTS + 2500 ? 0 : t < T_SPORTS + 3200 ? 1 : 2;
+        if (prev < T_SPORTS + 1700 && t >= T_SPORTS + 1700)
+            shell_key(&sports, FT_OK); /* the banner leads to the Sports tab */
+        if (prev < T_SPORTS + 2300 && t >= T_SPORTS + 2300)
+            shell_key(&sports, FT_DOWN); /* to "Live football now" */
+        if (prev < T_SPORTS + 3100 && t >= T_SPORTS + 3100)
+            shell_key(&sports, FT_RIGHT);
     }
     if (t >= T_GAMES && t < T_PARENTS) {
         uint32_t g = t - T_GAMES;
@@ -564,7 +574,7 @@ static void draw(uint32_t t)
     } else if (t < T_GAMES) {
         scene_card(t, T_SPORTS, T_GAMES);
         caption(t, T_SPORTS, T_GAMES, "SPORTS", "See what's", "live now.",
-                "Football, rugby and more: the sports page shows which matches are on.");
+                "Official channels and live football from YouTube, all in one Sports tab.");
     } else if (t < T_PARENTS) {
         scene_card(t, T_GAMES, T_PARENTS);
         caption(t, T_GAMES, T_PARENTS, "GAMES", "Play time,", "built in.",

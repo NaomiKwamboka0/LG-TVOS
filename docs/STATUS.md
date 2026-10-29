@@ -29,6 +29,18 @@ what has been checked, where, and what has not.
 - Not yet tried on a Mac that never had Homebrew, nor through Gatekeeper's first-start prompt after
   a real download. The release workflow's clean-machine test covers the first.
 
+## Sports tab, YouTube, mouse and 3D look (checked 2026-10-30 on the development Mac)
+
+- Unit tests cover the Sports tab rows, the live football search filter (with real titles seen
+  that night: NFL, US school games, "Video Game Simulation" streams, talk shows), the YouTube rows,
+  search keyboard and typing, mouse hit-testing and focus, and the 3D card turned at the screen edge.
+- Real searches: YouTube rows filled (Football, Kenya news) and a Kenya news video played inside
+  Family TV through yt-dlp and libmpv. A yt-dlp search takes 20-40 s here, so the rows show
+  "Loading..." first.
+- 3D cards cost about 10 ms a frame at 720p on this Mac (8 ms before); a Retina screen draws four
+  times the pixels.
+- Not checked yet: Netflix's app window on Windows (Edge), the mouse on a Windows laptop.
+
 ## Release workflow (not run yet)
 
 `.github/workflows/release.yml` builds the Windows installer, zip, Mac .dmg and advert on a macOS 15
@@ -71,6 +83,10 @@ If anything fails, send `%APPDATA%\FamilyTV\FamilyTV\familytv.log`.
   Updating yt-dlp (`yt-dlp.exe -U` in the Family TV folder) fixes it.
 - YouTube may ask for a "not a bot" check on shared mobile connections. Family TV says so; waiting
   or another network helps. Signing in is not supported.
+- "Live football now" only finds what YouTube's live search shows: often watch-alongs and live
+  scores rather than the match pictures, which belong to the broadcasters. Unofficial re-streams are
+  cut by YouTube, sometimes mid-match.
+- YouTube videos play without a progress bar or seeking yet; Up/Down go to the next video in the row.
 - Channels take 10-15 s to start: yt-dlp needs about 4 s and opening the separate sound and picture
   streams the rest. Looking up neighbouring channels ahead of time could shorten zapping; not done.
 - The Windows zip is about 110 MB and the installer about 90 MB (libmpv, deno and yt-dlp).

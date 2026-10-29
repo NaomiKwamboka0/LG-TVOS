@@ -1,6 +1,7 @@
 #include "sports.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 const char *sport_streams_url(const char *live_url, char *out, size_t n)
@@ -104,4 +105,122 @@ const char *sport_watch_url(const sport_status *st, const char *channel_url, cha
     else
         snprintf(out, n, "%s", channel_url);
     return out;
+}
+
+/* ---- live football search ------------------------------------------------ */
+
+const char *sport_search_url(int i, char *out, size_t n)
+{
+    /* sp=EgJAAQ== is YouTube's "Live" filter. */
+    static const char *const QUERY[SPORT_SEARCHES] = {"soccer+live+match", "live+football+watchalong"};
+    snprintf(out, n, "https://www.youtube.com/results?search_query=%s&sp=EgJAAQ%%253D%%253D",
+             QUERY[i >= 0 && i < SPORT_SEARCHES ? i : 0]);
+    return out;
+}
+
+/* Case-insensitive substring search. */
+static int contains(const char *text, const char *needle)
+{
+    size_t i, j, n = strlen(needle);
+    for (i = 0; text[i]; i++) {
+        for (j = 0; j < n && text[i + j] && ((text[i + j] | 0x20) == (needle[j] | 0x20) ||
+                                            (needle[j] == ' ' && text[i + j] == ' '));
+             j++)
+            ;
+        if (j == n)
+            return 1;
+    }
+    return 0;
+}
+
+static int contains_any(const char *text, const char *const *words)
+{
+    for (; *words; words++)
+        if (contains(text, *words))
+            return 1;
+    return 0;
+}
+
+/* "ASDSportSavvyLive 38", "PAWSportDayScoreboard": names made up in bulk
+ * by channels that stream other people's school games. */
+static int bulk_channel_name(const char *by)
+{
+    size_t len = strlen(by);
+    while (len > 0 && by[len - 1] == ' ')
+        len--;
+    if (len > 0 && by[len - 1] >= '0' && by[len - 1] <= '9')
+        return 1;
+    return len >= 5 && by[0] >= 'A' && by[0] <= 'Z' && by[1] >= 'A' && by[1] <= 'Z' && by[2] >= 'A' &&
+           by[2] <= 'Z' && by[3] >= 'A' && by[3] <= 'Z' && by[4] >= 'a' && by[4] <= 'z';
+}
+
+int sport_is_football(const char *title, const char *by)
+{
+    static const char *const NOT_SOCCER[] = {"nfl", "ncaa", "high school", "hs football", "college football",
+                                             "night football", "american football", "touchdown", "flag football",
+                                             "fantasy football", "cricket", "basketball", "baseball", NULL};
+    static const char *const NOT_REAL[] = {"simulation", "efootball", "e-football", "gameplay", "video game",
+                                           "game play", "pes 20", "fifa 2", "fc 2", "ea fc", "ea sports",
+                                           "football manager", "career mode", "ultimate team", "ps5", "xbox",
+                                           "cartoon", "prediction", NULL};
+    static const char *const NOT_A_MATCH[] = {"24/7", "radio", "podcast", "preview", "post-match", "post match",
+                                              "reaction", "press conference", "highlights", "replay", "auction",
+                                              "draw ceremony", "ballon", "transfer", NULL};
+    static const char *const MATCH[] = {" vs ", " vs. ", " v ", " vs.", "watch along", "watchalong", NULL};
+    return !bulk_channel_name(by) && !contains_any(title, NOT_SOCCER) && !contains_any(title, NOT_REAL) &&
+           !contains_any(title, NOT_A_MATCH) && contains_any(title, MATCH);
+}
+
+static int busier(const sport_found *a, const sport_found *b)
+{
+    return a->viewers > b->viewers;
+}
+
+int sport_add_found(sport_found *found, int n, const char *lines)
+{
+    const char *line = lines;
+    while (line && *line) {
+        const char *start = line, *nl = strchr(line, '\n'), *f[5];
+        char tmp[512];
+        size_t len = nl ? (size_t)(nl - line) : strlen(line);
+        int k = 1, i, dup = 0;
+        char *p;
+        sport_found x;
+        line = nl ? nl + 1 : NULL;
+        if (len >= sizeof tmp)
+            continue;
+        memcpy(tmp, start, len);
+        tmp[len] = '\0';
+        f[0] = tmp;
+        for (p = tmp; *p && k < 5; p++)
+            if (*p == '\t') {
+                *p = '\0';
+                f[k++] = p + 1;
+            }
+        if (k < 5 || strcmp(f[0], "is_live") != 0 || !f[1][0] || strlen(f[1]) >= SPORT_ID_MAX)
+            continue;
+        memset(&x, 0, sizeof x);
+        snprintf(x.video_id, sizeof x.video_id, "%s", f[1]);
+        x.viewers = f[2][0] >= '0' && f[2][0] <= '9' ? atoi(f[2]) : 0;
+        sport_clean_title(x.by, sizeof x.by, f[3]);
+        sport_clean_title(x.title, sizeof x.title, f[4]);
+        if (!x.title[0] || !sport_is_football(f[4], f[3]))
+            continue;
+        for (i = 0; i < n; i++)
+            dup |= !strcmp(found[i].video_id, x.video_id) || !strcmp(found[i].title, x.title);
+        if (dup)
+            continue;
+        if (n < SPORT_FOUND_MAX)
+            found[n++] = x;
+        else if (busier(&x, &found[n - 1]))
+            found[n - 1] = x;
+        else
+            continue;
+        for (i = n - 1; i > 0 && busier(&found[i], &found[i - 1]); i--) { /* keep busiest first */
+            sport_found t = found[i];
+            found[i] = found[i - 1];
+            found[i - 1] = t;
+        }
+    }
+    return n;
 }

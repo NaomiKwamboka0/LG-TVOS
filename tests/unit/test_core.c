@@ -470,36 +470,154 @@ static void test_shell_dad_reaches_channel_in_two_presses(void)
     test_clean_save(path);
 }
 
-/* Sports: one tile opens the page; live matches come first; OK plays one. */
-static void test_sports_page(void)
+/* Sports: the banner leads to the Sports tab; live official matches come
+ * first, then live football found by search (parents only), what is
+ * coming up and every sports channel. */
+static void test_sports_tab(void)
 {
     const char *path = TMP "/sports-settings.sav";
+    static shell_row rows[SHELL_MAX_ROWS];
     shell_config c;
     static shell s;
     static session ss;
     shell_action a;
+    int n;
     test_clean_save(path);
     base_config(&c);
     shell_init(&s, &c);
     session_init_with_clock(&ss, &s, path, fixed_ms, fixed_wall);
     s.cfg.sport[4].state = SPORT_LIVE;
     s.cfg.sport[2].state = SPORT_UPCOMING;
+    s.cfg.nfound = 2;
+    snprintf(s.cfg.found[0].video_id, sizeof s.cfg.found[0].video_id, "abc");
+    snprintf(s.cfg.found[0].title, sizeof s.cfg.found[0].title, "Home vs Away");
     shell_key(&s, FT_DOWN);
     shell_key(&s, FT_DOWN); /* the Sports banner */
     shell_key(&s, FT_OK);
-    CHECK(s.screen == SCR_SPORTS && s.item == 4); /* starts on the live match */
-    shell_key(&s, FT_DOWN);
-    CHECK(s.item == 2);
-    s.cfg.sport[0].state = SPORT_LIVE; /* news arrives: the focus stays put */
-    CHECK(s.item == 2);
-    shell_key(&s, FT_UP);
-    CHECK(s.item == 4);
+    CHECK(s.screen == SCR_HOME && s.tab == TAB_SPORTS && s.top == TAB_SPORTS && s.row == 0);
+    CHECK(strcmp(shell_tab_label(LANG_EN, TAB_SPORTS), "Sports") == 0);
+
+    n = rows_of(&s, rows);
+    CHECK(n == 4);
+    CHECK(rows[0].title == STR_ON_NOW && rows[0].n == 1 && rows[0].cards[0].kind == CARD_SPORT && rows[0].cards[0].arg == 4);
+    CHECK(rows[1].title == STR_LIVE_FOOTBALL && rows[1].n == 2 && rows[1].cards[1].kind == CARD_FOUND);
+    CHECK(rows[2].title == STR_COMING_UP && rows[2].n == 1 && rows[2].cards[0].arg == 2);
+    CHECK(rows[3].title == STR_SPORTS_CHANNELS && rows[3].n == c.sports.n && rows[3].cards[0].arg == 4);
+
     a = shell_key(&s, FT_OK);
     CHECK(a.act == ACT_PLAY_SPORT && a.arg == 4);
-    CHECK(session_dispatch(&ss, &s, a) == SESSION_WATCH && ss.watch_sports && ss.watch_channel == 4);
-    shell_key(&s, FT_BACK);
-    CHECK(s.screen == SCR_HOME);
+    CHECK(session_dispatch(&ss, &s, a) == SESSION_WATCH && ss.watch_list == WATCH_SPORTS && ss.watch_channel == 4);
+    shell_key(&s, FT_DOWN);
+    a = shell_key(&s, FT_OK);
+    CHECK(a.act == ACT_PLAY_FOUND && a.arg == 0);
+    CHECK(session_dispatch(&ss, &s, a) == SESSION_WATCH && ss.watch_list == WATCH_FOUND && ss.watch_channel == 0);
+    CHECK(session_dispatch(&ss, &s, (shell_action){ACT_PLAY_FOUND, 2}) == -1); /* bad index */
+
+    s.cfg.nfound = 0; /* still searching: one card says so */
+    s.cfg.searching = 1;
+    rows_of(&s, rows);
+    CHECK(rows[1].n == 1 && rows[1].cards[0].kind == CARD_SEARCHING);
+    CHECK(strstr(shell_card_label(&s, rows[1].cards[0]), "Looking") != NULL);
+    CHECK(shell_key(&s, FT_OK).act == ACT_NONE);
+
+    s.cfg.profile = PROFILE_CHILD; /* search results are not vetted: parents only */
+    s.cfg.nfound = 2;
+    n = rows_of(&s, rows);
+    CHECK(n == 3 && rows[1].title != STR_LIVE_FOOTBALL);
+    CHECK(session_dispatch(&ss, &s, (shell_action){ACT_PLAY_FOUND, 0}) == -1);
+    CHECK(strstr(s.status, "Ask a parent") != NULL);
     test_clean_save(path);
+}
+
+/* YouTube inside Family TV: a search bar, rows of videos, the search
+ * keyboard (remote, mouse or laptop keyboard), parents only. */
+static void test_youtube_tab(void)
+{
+    const char *path = TMP "/youtube-settings.sav";
+    static shell_row rows[SHELL_MAX_ROWS];
+    shell_config c;
+    static shell s;
+    static session ss;
+    shell_action a;
+    int n;
+    test_clean_save(path);
+    base_config(&c);
+    shell_init(&s, &c);
+    session_init_with_clock(&ss, &s, path, fixed_ms, fixed_wall);
+    shell_focus_top(&s, TAB_YOUTUBE);
+    n = rows_of(&s, rows);
+    CHECK(n == YT_FEEDS && rows[0].style == ROW_SEARCH && rows[1].title == STR_YT_FOOTBALL); /* no search yet */
+    CHECK(rows[1].n == 1 && rows[1].cards[0].kind == CARD_YT_LOADING);
+    s.cfg.nvideos[1] = 2;
+    snprintf(s.cfg.videos[YT_FEED_MAX + 1].id, YT_ID_MAX, "abc");
+    rows_of(&s, rows);
+    CHECK(rows[1].n == 2 && rows[1].cards[1].kind == CARD_VIDEO && rows[1].cards[1].arg == YT_FEED_MAX + 1);
+
+    shell_key(&s, FT_DOWN); /* the search bar */
+    shell_key(&s, FT_OK);
+    CHECK(s.screen == SCR_KEYBOARD && s.item == 0);
+    shell_key(&s, FT_OK); /* a */
+    shell_key(&s, FT_DOWN);
+    shell_key(&s, FT_RIGHT);
+    shell_key(&s, FT_OK); /* l */
+    shell_type(&s, 'X');
+    shell_type(&s, ' ');
+    shell_type(&s, ' '); /* one space only */
+    shell_type(&s, '\b');
+    CHECK(strcmp(s.cfg.yt_query, "alx") == 0);
+    a = shell_type(&s, '\n');
+    CHECK(a.act == ACT_YT_SEARCH && s.screen == SCR_HOME && s.tab == TAB_YOUTUBE && s.row == 1);
+    CHECK((s.cfg.yt_loading & 1u) && session_dispatch(&ss, &s, a) == SESSION_YT_SEARCH);
+    rows_of(&s, rows);
+    CHECK(rows[1].title == STR_YT_RESULTS);
+
+    shell_focus_card(&s, 2, 1); /* a Football video */
+    a = shell_key(&s, FT_OK);
+    CHECK(a.act == ACT_PLAY_VIDEO && a.arg == YT_FEED_MAX + 1);
+    CHECK(session_dispatch(&ss, &s, a) == SESSION_WATCH && ss.watch_list == WATCH_VIDEO);
+    CHECK(session_dispatch(&ss, &s, (shell_action){ACT_PLAY_VIDEO, YT_FEED_MAX + 5}) == -1); /* not loaded */
+
+    s.screen = SCR_HOME; /* typing on the tab starts a new search */
+    s.row = 0;
+    shell_type(&s, 'g');
+    CHECK(s.screen == SCR_KEYBOARD && strcmp(s.cfg.yt_query, "g") == 0);
+    shell_key(&s, FT_BACK);
+    CHECK(s.screen == SCR_HOME && s.row == 0);
+
+    s.cfg.profile = PROFILE_CHILD;
+    rows_of(&s, rows);
+    CHECK(rows[0].cards[0].kind == CARD_ASK_PARENT);
+    CHECK(session_dispatch(&ss, &s, (shell_action){ACT_PLAY_VIDEO, YT_FEED_MAX}) == -1);
+    shell_type(&s, 'g'); /* no keyboard for the child */
+    CHECK(s.screen == SCR_HOME);
+    s.cfg.profile = PROFILE_PARENT;
+    shell_focus_top(&s, TAB_APPS); /* the YouTube tile leads to the tab, not the browser */
+    rows_of(&s, rows);
+    shell_focus_card(&s, 1, 2);
+    CHECK(shell_key(&s, FT_OK).act == ACT_NONE && s.tab == TAB_YOUTUBE);
+    test_clean_save(path);
+}
+
+/* The mouse moves the focus straight to what it points at. */
+static void test_shell_mouse_focus(void)
+{
+    shell_config c;
+    static shell s;
+    base_config(&c);
+    shell_init(&s, &c);
+    shell_focus_top(&s, TAB_APPS);
+    CHECK(s.row == -1 && s.top == TAB_APPS && s.tab == TAB_APPS);
+    shell_focus_card(&s, 0, 1);
+    CHECK(s.row == 0 && s.col[0] == 1);
+    shell_focus_card(&s, 0, 99); /* not a card: nothing moves */
+    CHECK(s.col[0] == 1);
+    CHECK(shell_key(&s, FT_WHEEL_DOWN).act == ACT_NONE && s.row == 1); /* the wheel is Up and Down */
+    CHECK(shell_key(&s, FT_POINT).act == ACT_NONE && shell_key(&s, FT_CLICK).act == ACT_NONE && s.row == 1);
+    shell_open_pin(&s, PIN_FOR_SETTINGS);
+    shell_focus_item(&s, 2);
+    CHECK(s.pin_pos == 2);
+    shell_key(&s, FT_WHEEL_UP);
+    CHECK(s.pin_digits[2] == '1');
 }
 
 /* Netflix and YouTube open in the browser, for parents only. */
@@ -732,7 +850,9 @@ int main(void)
     test_home_rows_per_tab();
     test_shell_dad_reaches_channel_in_two_presses();
     test_shell_child_profile_limits();
-    test_sports_page();
+    test_sports_tab();
+    test_shell_mouse_focus();
+    test_youtube_tab();
     test_apps_parent_only();
     test_shell_every_card_reachable();
     test_shell_back_tabs_and_columns();

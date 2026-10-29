@@ -54,6 +54,9 @@ void canvas_circle(ft_canvas *c, int cx, int cy, int radius, ft_color color);
 void canvas_ring(ft_canvas *c, int cx, int cy, int radius, int thickness, ft_color color);
 /* Soft shadow for a rounded rect; blur is the falloff width in pixels. */
 void canvas_shadow(ft_canvas *c, ft_rect r, int blur, ft_color color);
+/* Same, leaving alone the pixels inside covered, which something opaque is
+ * drawn over next: most of a card's shadow is under the card. */
+void canvas_shadow_under(ft_canvas *c, ft_rect r, int blur, ft_color color, ft_rect covered);
 /* Radial soft glow filling an ellipse, strongest in the centre. */
 void canvas_glow(ft_canvas *c, int cx, int cy, int rx, int ry, ft_color color);
 /* Same falloff as canvas_glow (in the mask's own pixels), accumulated into an 8-bit w x h alpha mask
@@ -78,6 +81,19 @@ void canvas_text_fit(ft_canvas *c, const ft_font *f, int x, int y, int max_w, co
 int canvas_text_wrap(ft_canvas *c, const ft_font *f, ft_rect r, const char *text, ft_color color);
 void canvas_text_center(ft_canvas *c, const ft_font *f, ft_rect r, const char *text, ft_color color);
 void canvas_text_right(ft_canvas *c, const ft_font *f, int right_x, int y, const char *text, ft_color color);
+
+/* Drawing clipped to r (logical): out is a canvas over just that part of
+ * c's pixels, with its own (0, 0) at r's top-left corner (moved onto the
+ * screen if r starts off it); *ox, *oy are that corner in c's logical
+ * coordinates. Returns 0 if no part of r is on screen. */
+int canvas_clip(const ft_canvas *c, ft_rect r, ft_canvas *out, int *ox, int *oy);
+
+/* Draws src (a card drawn on its own, physical size) onto c with its
+ * top-left at physical (x, y), turned in 3D and seen in perspective: about
+ * the vertical axis by turn_y and the horizontal axis by turn_x, in
+ * thousandths of a radian (keep them under 300). Only src's rounded
+ * rectangle (corner radius in physical px) is drawn, with smooth edges. */
+void canvas_turn(ft_canvas *c, const ft_canvas *src, int x, int y, int radius, int turn_x, int turn_y);
 
 /* FNV-1a over physical pixels, for rendering regression tests. */
 uint32_t canvas_hash(const ft_canvas *c);

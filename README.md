@@ -1,9 +1,11 @@
 # Family TV
 
-A TV-style home for a laptop: Kenyan TV channels from their YouTube live streams, three family
-games, and parent controls (PIN, children's play time). The look follows TCL's Google TV launcher:
-tabs along the top, a wide banner, rows of cards, a channel guide, and while watching an info banner,
-a channel list and volume. Runs on Windows 10/11 and on Macs with Apple silicon.
+A TV-style home for a laptop: Kenyan TV channels from their YouTube live streams, a Sports tab with
+live matches, YouTube inside the app, three family games, and parent controls (PIN, children's play
+time). The look follows TCL's Google TV launcher (tabs along the top, a wide banner, rows of cards, a
+channel guide, an info banner and channel list while watching) with 3D cards that turn toward the
+mouse. Works with a remote-style keyboard or a mouse. Runs on Windows 10/11 and on Macs with Apple
+silicon.
 
 [![Watch the 30-second tour](docs/promo/poster.png)](https://github.com/NaomiKwamboka0/family-tv/releases/latest/download/familytv-promo.mp4)
 
@@ -37,13 +39,26 @@ More screens: [docs/screens](docs/screens/README.md). What is tested and what is
 | Backspace / Esc | up to the tabs | close the list, else back home (the stream stops) |
 | F11 or F | full screen | full screen |
 | Q | quit | quit |
+| Mouse | point to move, click to choose, right-click = Back, wheel = up/down | move: info banner, click: channel list (click a channel to play it), wheel: volume |
+
+- **Tabs:** For you, Live TV, Sports, YouTube, Apps.
+- **Sports:** official sports channels that are live now or coming up, and *Live football now*: live
+  football matches and watch-alongs found with YouTube's own live search. That search is filtered
+  (no American football, school games, video-game "simulations" or talk shows) but not vetted, so it
+  shows on the parent profile only.
+- **YouTube** plays inside Family TV: a search bar (on-screen keyboard, or type on the laptop) and
+  rows of football, Kenyan news, music and comedy. Parent profile only.
+- **Netflix** cannot play inside any app but the browsers (its videos are copy-protected), so it opens
+  full screen in a window of its own, without tabs: through Edge on Windows, Chrome/Edge/Brave on a
+  Mac (else the normal browser). It uses the browser's Netflix sign-in.
 
 - **Channels need internet.** Each one plays the station's YouTube live stream, through
   [yt-dlp](https://github.com/yt-dlp/yt-dlp) (with [Deno](https://deno.com)) and
   [libmpv](https://mpv.io). A channel takes about 10-15 s to start. Some stations stream only at
   certain times; Family TV then says the channel is not live right now.
-- **Data use** is set in Parent settings, "Live TV picture": 360p about 0.5 GB an hour, 480p about
-  0.6 GB (the default), 720p about 1.4 GB. Nothing streams while the home screen is showing.
+- **Picture and data use** are set in Parent settings, "Live TV picture": 1080p (the default, 60
+  frames a second where the channel offers it) about 2.6-3 GB an hour, 720p about 1.4 GB, 480p about
+  0.6 GB, 360p about 0.5 GB. Nothing streams while the home screen is showing.
 - **Channel list:** `channels.txt` (next to the program, or in the data folder to override it), one
   channel per line: `number|name|https://www.youtube.com/channel/<ID>/live|#colour`. Use the channel
   ID address, not the `@name` one: look-alike names belong to other channels.
