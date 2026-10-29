@@ -13,7 +13,7 @@ void settings_defaults(family_settings *f)
     memset(f, 0, sizeof *f);
     f->lang = LANG_EN;
     f->child_games = SETTINGS_ALL_GAMES;
-    f->quality = QUALITY_480;
+    f->quality = QUALITY_1080; /* sport looks best at 1080p, 60 fps where offered */
 }
 
 static void put32(uint8_t *o, uint32_t v)

@@ -222,7 +222,7 @@ static void test_settings_v1_migrates(void)
 
     CHECK(settings_load(&g, path) == FT_SAVE_OK);
     CHECK(g.profile == 1 && g.pin_set == 1 && pin_check(&g.pin, "1357") == 1);
-    CHECK(g.play.daily_limit_s == 1800 && g.quality == QUALITY_480);
+    CHECK(g.play.daily_limit_s == 1800 && g.quality == QUALITY_1080);
 
     /* Saving upgrades the file; the v1 copy becomes the last-known-good .prev. */
     g.quality = QUALITY_360;
@@ -232,7 +232,7 @@ static void test_settings_v1_migrates(void)
     CHECK(settings_load(&f, path) == FT_SAVE_OK && f.quality == QUALITY_360);
     test_corrupt_byte(path, 30);
     CHECK(settings_load(&f, path) == FT_SAVE_RESTORED_PREV);
-    CHECK(f.profile == 1 && pin_check(&f.pin, "1357") == 1 && f.quality == QUALITY_480);
+    CHECK(f.profile == 1 && pin_check(&f.pin, "1357") == 1 && f.quality == QUALITY_1080);
 
     /* A v1-sized payload labelled schema 2 is damage, not a migration. */
     test_clean_save(path);
@@ -344,7 +344,7 @@ static void test_session_pin_creation_and_child_switch(void)
     session_dispatch(&ss, &s, (shell_action){ACT_OPEN_PARENT_SETTINGS, 0});
     CHECK(ss.settings.play.daily_limit_s == 0 && s.screen != SCR_SETTINGS);
     session_dispatch(&ss, &s, (shell_action){ACT_CYCLE_QUALITY, 0});
-    CHECK(ss.settings.quality == QUALITY_480);
+    CHECK(ss.settings.quality == QUALITY_1080);
 
     /* Back to parent with the right PIN. */
     open_more(&ss, &s);
@@ -425,24 +425,24 @@ static void test_session_play_time_and_settings(void)
     CHECK(strstr(labels[1], "dk") != NULL);
     choose_item(&ss, &s, 0);
     CHECK(ss.settings.lang == LANG_EN);
-    CHECK(ss.settings.quality == QUALITY_480);
-    choose_item(&ss, &s, 8); /* live TV picture: 480p -> 720p -> 1080p -> 360p */
-    CHECK(ss.settings.quality == QUALITY_720 && s.cfg.quality == QUALITY_720);
-    choose_item(&ss, &s, 8);
     CHECK(ss.settings.quality == QUALITY_1080);
+    choose_item(&ss, &s, 8); /* live TV picture: 1080p -> 360p -> 480p -> 720p */
+    CHECK(ss.settings.quality == QUALITY_360 && s.cfg.quality == QUALITY_360);
+    choose_item(&ss, &s, 8);
+    CHECK(ss.settings.quality == QUALITY_480);
     choose_item(&ss, &s, 8);
     shell_list(&s, labels, SHELL_MAX_ITEMS);
-    CHECK(ss.settings.quality == QUALITY_360 && strstr(labels[8], "360p") != NULL);
+    CHECK(ss.settings.quality == QUALITY_720 && strstr(labels[8], "720p") != NULL);
     {
         family_settings saved;
-        CHECK(settings_load(&saved, path) == FT_SAVE_OK && saved.quality == QUALITY_360);
+        CHECK(settings_load(&saved, path) == FT_SAVE_OK && saved.quality == QUALITY_720);
     }
     press(&ss, &s, FT_BACK);
     CHECK(s.screen == SCR_MORE && !ss.unlocked);
     session_dispatch(&ss, &s, (shell_action){ACT_GRANT_15, 0}); /* locked again */
     CHECK(ss.settings.play.bonus_s == 0);
     session_dispatch(&ss, &s, (shell_action){ACT_CYCLE_QUALITY, 0});
-    CHECK(ss.settings.quality == QUALITY_360);
+    CHECK(ss.settings.quality == QUALITY_720);
 
     /* Child plays until the allowance runs out. */
     choose_item(&ss, &s, 0);
