@@ -22,6 +22,7 @@ static const struct {
     {FT_RGB(0x8590A3), FT_RGB(0x394152)}, /* Search */
     {FT_RGB(0xFF3B3B), FT_RGB(0xB3001B)}, /* YouTube */
     {FT_RGB(0xE50914), FT_RGB(0x8A050C)}, /* Netflix */
+    {FT_RGB(0x4285F4), FT_RGB(0x1A56C4)}, /* Google */
 };
 
 /* cos and sin of k * 22.5 degrees, times 1000 (gear teeth). */
@@ -257,6 +258,17 @@ static void netflix_mark(ft_canvas *c, int cx, int cy, int s)
     canvas_polygon(c, slant, 4, FT_RGB(0xE50914));
 }
 
+/* A blue G on a white disc: a ring opened at the upper right, and a bar. */
+static void google_mark(ft_canvas *c, int cx, int cy, int s)
+{
+    int r = P(s, 52), t = P(s, 20) < 2 ? 2 : P(s, 20);
+    int gap[6] = {cx, cy, cx + 2 * r, cy - 2 * r, cx + 2 * r, cy - P(s, 4)};
+    canvas_circle(c, cx, cy, P(s, 88), COL_TEXT);
+    canvas_ring(c, cx, cy, r, t, FT_RGB(0x4285F4));
+    canvas_polygon_in_circle(c, gap, 3, cx, cy, r + 1, COL_TEXT);
+    canvas_fill(c, (ft_rect){cx, cy - t / 2, r, t}, FT_RGB(0x4285F4));
+}
+
 void art_glyph(ft_canvas *c, art_id id, int cx, int cy, int s, ft_color ink)
 {
     int i;
@@ -281,6 +293,7 @@ void art_glyph(ft_canvas *c, art_id id, int cx, int cy, int s, ft_color ink)
     case ART_SEARCH: magnifier(c, cx, cy, s, ink); break;
     case ART_YOUTUBE: youtube_mark(c, cx, cy, s); break;
     case ART_NETFLIX: netflix_mark(c, cx, cy, s); break;
+    case ART_GOOGLE: google_mark(c, cx, cy, s); break;
     case ART_COUNT:
         break;
     }
@@ -326,7 +339,8 @@ void art_slab(ft_canvas *c, ft_rect r, int radius, ft_color top, ft_color bottom
  * colours, so they get a soft shadow instead. */
 static int one_ink(art_id id)
 {
-    return id != ART_RACER && id != ART_PENALTY && id != ART_GARDEN && id != ART_YOUTUBE && id != ART_NETFLIX;
+    return id != ART_RACER && id != ART_PENALTY && id != ART_GARDEN && id != ART_YOUTUBE && id != ART_NETFLIX &&
+           id != ART_GOOGLE;
 }
 
 void art_glyph_3d(ft_canvas *c, art_id id, int cx, int cy, int s, ft_color ink, ft_color edge)

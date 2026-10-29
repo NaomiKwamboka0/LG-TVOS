@@ -743,15 +743,20 @@ static art_id card_art(shell_card k)
 }
 
 /* Streaming services show their name, never a logo. */
+static art_id app_art(int app)
+{
+    return app == APP_NETFLIX ? ART_NETFLIX : app == APP_GOOGLE ? ART_GOOGLE : ART_YOUTUBE;
+}
+
 static void app_tile(ft_canvas *c, ft_rect r, int app, int focused, int tx, int ty)
 {
-    ft_color accent = app == APP_NETFLIX ? FT_RGB(0xE50914) : FT_RGB(0xFF0000);
+    ft_color accent = app == APP_NETFLIX ? FT_RGB(0xE50914) : app == APP_GOOGLE ? FT_RGB(0x4285F4) : FT_RGB(0xFF0000);
     ft_canvas clip;
     int ox, oy;
     art_slab(c, r, 14, FT_RGB(0x2C2D34), FT_RGB(0x0F1013), focused, tx, ty);
     if (canvas_clip(c, (ft_rect){r.x + 4, r.y + 4, r.w - 8, r.h - 8}, &clip, &ox, &oy)) /* the brand colour glows up */
         canvas_glow(&clip, r.x + r.w / 2 - ox, r.y + r.h - oy, r.w * 6 / 10, r.h * 5 / 10, color_alpha(accent, 0x99));
-    art_glyph(c, app == APP_NETFLIX ? ART_NETFLIX : ART_YOUTUBE, r.x + r.w / 2, r.y + r.h / 2, r.h * 36 / 100,
+    art_glyph(c, app_art(app), r.x + r.w / 2, r.y + r.h / 2, r.h * 36 / 100,
               COL_TEXT);
 }
 
@@ -914,7 +919,7 @@ static ft_color card_accent(const shell *s, shell_card k)
 {
     switch (k.kind) {
     case CARD_CHANNEL: return s->cfg.channels.ch[k.arg].accent;
-    case CARD_APP: return FT_RGB(0xE50914);
+    case CARD_APP: return k.arg == APP_GOOGLE ? FT_RGB(0x4285F4) : FT_RGB(0xE50914);
     case CARD_SPORT: return s->cfg.sports.ch[k.arg].accent;
     case CARD_SPORTS:
     case CARD_FOUND:
@@ -1315,7 +1320,7 @@ void view_web_bar(ft_canvas *c, int app, int back_focused, const char *clock_tex
         canvas_line(c, back.x + 20, ay, back.x + 28, ay + 8, 3, ink);
         canvas_text(c, &font_label, back.x + 50, back.y + (back.h - font_label.line_height) / 2, "Family TV", ink);
     }
-    art_glyph(c, app == APP_NETFLIX ? ART_NETFLIX : ART_YOUTUBE, x + 16, VIEW_WEB_BAR_H / 2, 14, COL_TEXT);
+    art_glyph(c, app_art(app), x + 16, VIEW_WEB_BAR_H / 2, 14, COL_TEXT);
     canvas_text(c, &font_label, x + 44, (VIEW_WEB_BAR_H - font_label.line_height) / 2, name, COL_TEXT);
     if (clock_text)
         canvas_text_right(c, &font_body, VIEW_W - 24, (VIEW_WEB_BAR_H - font_body.line_height) / 2, clock_text,

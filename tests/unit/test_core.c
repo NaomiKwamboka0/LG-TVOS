@@ -551,6 +551,7 @@ static void test_streaming_tab(void)
     CHECK(a.act == ACT_OPEN_APP && a.arg == APP_YOUTUBE && s.tab == TAB_YOUTUBE); /* no tab of our own */
     CHECK(session_dispatch(&ss, &s, a) == SESSION_OPEN_APP);
     CHECK(strstr(shell_app_url(APP_YOUTUBE), "youtube.com") != NULL);
+    CHECK(strcmp(shell_app_name(APP_GOOGLE), "Google") == 0 && strstr(shell_app_url(APP_GOOGLE), "google.com") != NULL);
     shell_type(&s, 'g'); /* typing starts nothing */
     CHECK(s.screen == SCR_HOME);
     s.cfg.profile = PROFILE_CHILD;

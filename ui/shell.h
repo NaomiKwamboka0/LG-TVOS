@@ -19,8 +19,8 @@ typedef enum { TAB_FOR_YOU, TAB_LIVE, TAB_SPORTS, TAB_YOUTUBE, TAB_APPS, TAB_COU
 enum { TOP_GEAR = TAB_COUNT, TOP_PROFILE, TOP_COUNT };
 
 typedef enum { SCR_HOME, SCR_MORE, SCR_SETTINGS, SCR_PIN, SCR_KEYBOARD } shell_screen;
-/* Streaming services opened in the web browser with the family's own account. */
-typedef enum { APP_NETFLIX, APP_YOUTUBE, APP_COUNT } app_id;
+/* Real sites shown inside Family TV (sim/web.h), with the family's own accounts. */
+typedef enum { APP_NETFLIX, APP_YOUTUBE, APP_GOOGLE, APP_COUNT } app_id;
 typedef enum { GAME_RACER, GAME_PENALTY, GAME_GARDEN, GAME_COUNT } game_id;
 typedef enum { PROFILE_PARENT, PROFILE_CHILD } profile_role;
 typedef enum { PIN_FOR_PARENT, PIN_FOR_SETTINGS, PIN_NEW_FIRST, PIN_NEW_CONFIRM } pin_purpose;

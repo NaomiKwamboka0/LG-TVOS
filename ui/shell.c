@@ -7,8 +7,9 @@ static const ft_str GAME_NAME[GAME_COUNT] = {STR_GAME_RACER, STR_GAME_PENALTY, S
 static const ft_str TAB_NAME[TAB_COUNT] = {STR_FOR_YOU, STR_LIVE_TV, STR_SPORTS, STR_YOUTUBE, STR_APPS};
 static const char KEY_CHARS[] = "abcdefghijklmnopqrstuvwxyz0123456789";
 static const ft_str QUALITY_LABEL[] = {STR_QUALITY_360, STR_QUALITY_480, STR_QUALITY_720, STR_QUALITY_1080};
-static const char *const APP_NAME[APP_COUNT] = {"Netflix", "YouTube"};
-static const char *const APP_URL[APP_COUNT] = {"https://www.netflix.com/browse", "https://www.youtube.com/"};
+static const char *const APP_NAME[APP_COUNT] = {"Netflix", "YouTube", "Google"};
+static const char *const APP_URL[APP_COUNT] = {"https://www.netflix.com/browse", "https://www.youtube.com/",
+                                               "https://www.google.com/"};
 #define QUALITY_LABELS ((int)(sizeof QUALITY_LABEL / sizeof QUALITY_LABEL[0]))
 
 typedef struct {
@@ -210,8 +211,8 @@ static void sports_rows(const shell *s, shell_row *out, int *n, int max)
     }
 }
 
-/* YouTube and Netflix are the real sites in a window of their own, so this
- * tab is only the way to them. They reach everything: parents only. */
+/* YouTube, Netflix and Google are the real sites shown inside Family TV, so
+ * this tab is only the way to them. They reach everything: parents only. */
 static void youtube_rows(const shell *s, shell_row *out, int *n, int max)
 {
     shell_row *r = new_row(out, n, max, ROW_CARDS, STR_YOUTUBE);
