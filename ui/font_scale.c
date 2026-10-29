@@ -111,6 +111,7 @@ static int make(size_t i, int slot, int scale)
         return 0;
     for (c = 0; c < base->count; c++) {
         int glyph = stbtt_FindGlyphIndex(fi, base->first + c);
+        w = h = xo = yo = 0; /* left as they were for empty glyphs (space) */
         bm[c] = stbtt_GetGlyphBitmap(fi, px, px, glyph, &w, &h, &xo, &yo);
         if (bm[c] && (w > 255 || h > 255)) {
             stbtt_FreeBitmap(bm[c], NULL);
