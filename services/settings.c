@@ -6,13 +6,14 @@
 #include "save.h"
 
 static const char MAGIC[4] = {'S', 'T', 'S', 'V'};
-#define SCHEMA 1
+#define SCHEMA 2
 
 void settings_defaults(family_settings *f)
 {
     memset(f, 0, sizeof *f);
     f->lang = LANG_EN;
     f->child_games = SETTINGS_ALL_GAMES;
+    f->quality = QUALITY_1080; /* sport looks best at 1080p, 60 fps where offered */
 }
 
 static void put32(uint8_t *o, uint32_t v)
@@ -25,7 +26,8 @@ static uint32_t get32(const uint8_t *i)
 }
 
 /* Layout: lang, profile, child_games, pin_set, salt[16], hash[32],
- * blocks u32, passes u32, failures u32, play[24]. */
+ * blocks u32, passes u32, failures u32, play[24], then (schema 2)
+ * quality, reserved[3] = 0. */
 size_t settings_pack(const family_settings *f, uint8_t *o, size_t cap)
 {
     if (cap < SETTINGS_PACKED_SIZE)
@@ -41,13 +43,15 @@ size_t settings_pack(const family_settings *f, uint8_t *o, size_t cap)
     put32(o + 60, f->pin_failures);
     if (play_pack(&f->play, o + 64, cap - 64) != PLAY_PACKED_SIZE)
         return 0;
+    o[88] = f->quality;
+    o[89] = o[90] = o[91] = 0;
     return SETTINGS_PACKED_SIZE;
 }
 
 int settings_unpack(family_settings *f, const uint8_t *in, size_t n)
 {
     family_settings q;
-    if (n != SETTINGS_PACKED_SIZE)
+    if (n != SETTINGS_PACKED_SIZE && n != SETTINGS_V1_SIZE)
         return -1;
     settings_defaults(&q);
     q.lang = in[0];
@@ -70,6 +74,11 @@ int settings_unpack(family_settings *f, const uint8_t *in, size_t n)
         q.pin_failures = PIN_MAX_FAILURES;
     if (play_unpack(&q.play, in + 64, PLAY_PACKED_SIZE) != 0)
         return -1;
+    if (n == SETTINGS_PACKED_SIZE) {
+        q.quality = in[88];
+        if (q.quality >= QUALITY_COUNT)
+            return -1;
+    }
     *f = q;
     return 0;
 }
@@ -78,8 +87,12 @@ int settings_load(family_settings *f, const char *path)
 {
     uint8_t buf[SETTINGS_PACKED_SIZE];
     uint32_t len = 0;
-    int r = ft_save_read(path, MAGIC, SCHEMA, buf, sizeof buf, &len);
-    if (r >= 0 && settings_unpack(f, buf, len) == 0)
+    uint16_t schema = 0;
+    /* Schema 1 files (before live TV) must keep their PIN and child profile:
+     * falling back to defaults would quietly drop the parental controls. */
+    int r = ft_save_read_range(path, MAGIC, 1, SCHEMA, buf, sizeof buf, &len, &schema);
+    if (r >= 0 && len == (schema == 1 ? SETTINGS_V1_SIZE : SETTINGS_PACKED_SIZE) &&
+        settings_unpack(f, buf, len) == 0)
         return r;
     settings_defaults(f);
     return r < 0 ? r : FT_SAVE_CORRUPT;

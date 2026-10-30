@@ -9,6 +9,7 @@
 #include "i18n.h"
 #include "pin.h"
 #include "playtime.h"
+#include "prefs.h"
 #include "save.h"
 #include "session.h"
 #include "settings.h"
@@ -131,6 +132,22 @@ static void test_play_pack(void)
     CHECK(play_unpack(&q, buf, sizeof buf) != 0);
 }
 
+static void test_play_meter_clamps_sleep(void)
+{
+    play_meter m;
+    uint32_t total = 0;
+    uint64_t t = 5000;
+    int i;
+    play_meter_start(&m, t);
+    for (i = 0; i < 90; i++) /* 3 s of 30 Hz frames */
+        total += play_meter_step(&m, t += 33 + (i % 3 == 0), 1);
+    CHECK(total == 3);
+    total += play_meter_step(&m, t += 3u * 3600u * 1000u, 1); /* lid closed for 3 hours */
+    CHECK(total <= 4);
+    CHECK(play_meter_step(&m, t += 5000, 0) == 0); /* paused: nothing counted */
+    CHECK(play_meter_step(&m, t - 100, 1) == 0); /* clock never goes back, but stay safe */
+}
+
 /* ---- Translations and settings ------------------------------------- */
 
 static void test_i18n_complete(void)
@@ -173,6 +190,76 @@ static void test_settings_roundtrip_and_validation(void)
     buf[3] = 1;
     buf[0] = 9; /* unknown language */
     CHECK(settings_unpack(&g, buf, sizeof buf) != 0);
+    buf[0] = LANG_SW;
+    buf[88] = QUALITY_COUNT; /* unknown quality */
+    CHECK(settings_unpack(&g, buf, sizeof buf) != 0);
+    buf[88] = QUALITY_720;
+    CHECK(settings_unpack(&g, buf, sizeof buf) == 0 && g.quality == QUALITY_720);
+    CHECK(settings_unpack(&g, buf, SETTINGS_PACKED_SIZE - 1) != 0);
+    test_clean_save(path);
+}
+
+/* A settings file written before live TV (schema 1, 88 bytes) must load
+ * with its PIN and child profile intact; dropping to defaults would hand a
+ * child the parent profile. */
+static void test_settings_v1_migrates(void)
+{
+    const char *path = TMP "/settings-v1.sav";
+    static const uint8_t salt[PIN_SALT_SIZE] = {3};
+    family_settings f, g;
+    uint8_t buf[SETTINGS_PACKED_SIZE];
+    uint32_t len = 0;
+    uint16_t schema = 0;
+    test_clean_save(path);
+
+    settings_defaults(&f);
+    f.profile = 1;
+    f.pin_set = 1;
+    CHECK(pin_make(&f.pin, "1357", salt, 64, 1) == 0);
+    f.play.daily_limit_s = 1800;
+    CHECK(settings_pack(&f, buf, sizeof buf) == SETTINGS_PACKED_SIZE);
+    CHECK(ft_save_write(path, "STSV", 1, buf, SETTINGS_V1_SIZE) == FT_SAVE_OK);
+
+    CHECK(settings_load(&g, path) == FT_SAVE_OK);
+    CHECK(g.profile == 1 && g.pin_set == 1 && pin_check(&g.pin, "1357") == 1);
+    CHECK(g.play.daily_limit_s == 1800 && g.quality == QUALITY_1080);
+
+    /* Saving upgrades the file; the v1 copy becomes the last-known-good .prev. */
+    g.quality = QUALITY_360;
+    CHECK(settings_save(&g, path) == FT_SAVE_OK);
+    CHECK(ft_save_read_range(path, "STSV", 1, 2, buf, sizeof buf, &len, &schema) == FT_SAVE_OK);
+    CHECK(schema == 2 && len == SETTINGS_PACKED_SIZE);
+    CHECK(settings_load(&f, path) == FT_SAVE_OK && f.quality == QUALITY_360);
+    test_corrupt_byte(path, 30);
+    CHECK(settings_load(&f, path) == FT_SAVE_RESTORED_PREV);
+    CHECK(f.profile == 1 && pin_check(&f.pin, "1357") == 1 && f.quality == QUALITY_1080);
+
+    /* A v1-sized payload labelled schema 2 is damage, not a migration. */
+    test_clean_save(path);
+    CHECK(ft_save_write(path, "STSV", 2, buf, SETTINGS_V1_SIZE) == FT_SAVE_OK);
+    CHECK(settings_load(&f, path) == FT_SAVE_CORRUPT && f.profile == 0);
+    test_clean_save(path);
+}
+
+static void test_prefs_roundtrip_and_validation(void)
+{
+    const char *path = TMP "/player.sav";
+    player_prefs p, q;
+    uint8_t bad[PREFS_PACKED_SIZE] = {5, 0, 101, 0};
+    test_clean_save(path);
+    CHECK(prefs_load(&p, path) == FT_SAVE_NONE);
+    CHECK(p.last_channel == 0 && p.volume == 80 && p.fullscreen == 0);
+    p.last_channel = 312;
+    p.volume = 35;
+    p.fullscreen = 1;
+    CHECK(prefs_save(&p, path) == FT_SAVE_OK);
+    CHECK(prefs_load(&q, path) == FT_SAVE_OK);
+    CHECK(q.last_channel == 312 && q.volume == 35 && q.fullscreen == 1);
+    p.volume = 140; /* clamped on save */
+    CHECK(prefs_save(&p, path) == FT_SAVE_OK && prefs_load(&q, path) == FT_SAVE_OK && q.volume == 100);
+    test_clean_save(path);
+    CHECK(ft_save_write(path, "PLSV", 1, bad, sizeof bad) == FT_SAVE_OK); /* volume 101 */
+    CHECK(prefs_load(&q, path) == FT_SAVE_CORRUPT && q.volume == 80 && q.last_channel == 0);
     test_clean_save(path);
 }
 
@@ -194,11 +281,17 @@ static void enter_pin(session *ss, shell *s, const char *pin)
     }
 }
 
+/* Home, up to the top bar, across to the gear, OK: the Settings list. */
 static void open_more(session *ss, shell *s)
 {
     while (s->screen != SCR_HOME)
         press(ss, s, FT_BACK);
-    s->focus = s->ntiles - 1; /* More is always the last tile */
+    if (s->row >= 0)
+        press(ss, s, FT_BACK);
+    while (s->top < TOP_GEAR)
+        press(ss, s, FT_RIGHT);
+    while (s->top > TOP_GEAR)
+        press(ss, s, FT_LEFT);
     press(ss, s, FT_OK);
 }
 
@@ -230,7 +323,7 @@ static void test_session_pin_creation_and_child_switch(void)
     fresh(&ss, &s, path);
 
     open_more(&ss, &s);
-    choose_item(&ss, &s, 1); /* Switch to child profile */
+    choose_item(&ss, &s, 0); /* Switch to child profile */
     CHECK(s.screen == SCR_PIN && s.pin_for == PIN_NEW_FIRST);
     enter_pin(&ss, &s, "1234");
     CHECK(s.screen == SCR_PIN && s.pin_for == PIN_NEW_CONFIRM);
@@ -250,8 +343,8 @@ static void test_session_pin_creation_and_child_switch(void)
     session_dispatch(&ss, &s, (shell_action){ACT_CYCLE_LIMIT, 0});
     session_dispatch(&ss, &s, (shell_action){ACT_OPEN_PARENT_SETTINGS, 0});
     CHECK(ss.settings.play.daily_limit_s == 0 && s.screen != SCR_SETTINGS);
-    session_dispatch(&ss, &s, (shell_action){ACT_WEB_SEARCH, 0});
-    CHECK(strstr(s.status, "not yet verified") != NULL);
+    session_dispatch(&ss, &s, (shell_action){ACT_CYCLE_QUALITY, 0});
+    CHECK(ss.settings.quality == QUALITY_1080);
 
     /* Back to parent with the right PIN. */
     open_more(&ss, &s);
@@ -272,7 +365,7 @@ static void test_session_wrong_pin_lockout_persists(void)
     clock_ms = 1000;
     fresh(&ss, &s, path);
     open_more(&ss, &s);
-    choose_item(&ss, &s, 1);
+    choose_item(&ss, &s, 0);
     enter_pin(&ss, &s, "0007");
     enter_pin(&ss, &s, "0007");
     CHECK(s.cfg.profile == PROFILE_CHILD);
@@ -318,7 +411,7 @@ static void test_session_play_time_and_settings(void)
 
     /* Parent settings: create PIN, set 30 minutes, switch language, block Block Garden. */
     open_more(&ss, &s);
-    choose_item(&ss, &s, 2);
+    choose_item(&ss, &s, 1); /* Parent settings */
     enter_pin(&ss, &s, "5555");
     enter_pin(&ss, &s, "5555");
     CHECK(s.screen == SCR_SETTINGS && ss.unlocked);
@@ -332,13 +425,27 @@ static void test_session_play_time_and_settings(void)
     CHECK(strstr(labels[1], "dk") != NULL);
     choose_item(&ss, &s, 0);
     CHECK(ss.settings.lang == LANG_EN);
+    CHECK(ss.settings.quality == QUALITY_1080);
+    choose_item(&ss, &s, 8); /* live TV picture: 1080p -> 360p -> 480p -> 720p */
+    CHECK(ss.settings.quality == QUALITY_360 && s.cfg.quality == QUALITY_360);
+    choose_item(&ss, &s, 8);
+    CHECK(ss.settings.quality == QUALITY_480);
+    choose_item(&ss, &s, 8);
+    shell_list(&s, labels, SHELL_MAX_ITEMS);
+    CHECK(ss.settings.quality == QUALITY_720 && strstr(labels[8], "720p") != NULL);
+    {
+        family_settings saved;
+        CHECK(settings_load(&saved, path) == FT_SAVE_OK && saved.quality == QUALITY_720);
+    }
     press(&ss, &s, FT_BACK);
     CHECK(s.screen == SCR_MORE && !ss.unlocked);
     session_dispatch(&ss, &s, (shell_action){ACT_GRANT_15, 0}); /* locked again */
     CHECK(ss.settings.play.bonus_s == 0);
+    session_dispatch(&ss, &s, (shell_action){ACT_CYCLE_QUALITY, 0});
+    CHECK(ss.settings.quality == QUALITY_720);
 
     /* Child plays until the allowance runs out. */
-    choose_item(&ss, &s, 1);
+    choose_item(&ss, &s, 0);
     CHECK(s.cfg.profile == PROFILE_CHILD);
     CHECK(session_dispatch(&ss, &s, (shell_action){ACT_LAUNCH_GAME, GAME_RACER}) == GAME_RACER);
     CHECK(session_dispatch(&ss, &s, (shell_action){ACT_LAUNCH_GAME, GAME_GARDEN}) == -1);
@@ -363,12 +470,12 @@ static void test_session_play_time_and_settings(void)
     enter_pin(&ss, &s, "5555");
     CHECK(s.cfg.profile == PROFILE_PARENT);
     open_more(&ss, &s);
-    choose_item(&ss, &s, 2);
+    choose_item(&ss, &s, 1);
     enter_pin(&ss, &s, "5555");
     choose_item(&ss, &s, 2);
     CHECK(ss.settings.play.bonus_s == 900);
     press(&ss, &s, FT_BACK);
-    choose_item(&ss, &s, 1);
+    choose_item(&ss, &s, 0);
     CHECK(session_dispatch(&ss, &s, (shell_action){ACT_LAUNCH_GAME, GAME_RACER}) == GAME_RACER);
 
     /* Next Nairobi day: fresh allowance. */
@@ -388,8 +495,11 @@ void run_service_tests(void)
     test_play_limits();
     test_play_clock_rules();
     test_play_pack();
+    test_play_meter_clamps_sleep();
     test_i18n_complete();
     test_settings_roundtrip_and_validation();
+    test_settings_v1_migrates();
+    test_prefs_roundtrip_and_validation();
     test_session_pin_creation_and_child_switch();
     test_session_wrong_pin_lockout_persists();
     test_session_play_time_and_settings();

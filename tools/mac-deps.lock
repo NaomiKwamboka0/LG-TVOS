@@ -1,0 +1,4 @@
+# macOS app dependencies: name|version|url|sha256 (Apple Silicon).
+# SHA-256 from each GitHub release's published asset digest, 2026-10-29.
+mac-yt-dlp|2026.10.26|https://github.com/yt-dlp/yt-dlp/releases/download/2026.10.26/yt-dlp_macos|0f922c15ccc0b83eefa1c8bc9104e434318c4bf16e408e1ee93b7745a6efe0aa
+mac-deno|2.9.8|https://github.com/denoland/deno/releases/download/v2.9.8/deno-aarch64-apple-darwin.zip|9f0bf660393da2eaff044cdc7444cb08c73f235849b61d224d825a194ce7c98e

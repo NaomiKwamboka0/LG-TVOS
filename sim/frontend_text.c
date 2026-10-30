@@ -1,4 +1,4 @@
-/* Text-terminal frontend for the host simulator. */
+/* Text-terminal frontend: a development tool (macOS and Linux terminals). */
 #define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
 #include <stdlib.h>
@@ -21,9 +21,16 @@ static void raw_off(void)
     }
 }
 
-static int text_open(int scripted)
+static void text_folders(char *data, size_t data_n, char *base, size_t base_n)
+{
+    snprintf(data, data_n, "out/simdata");
+    snprintf(base, base_n, "%s", "");
+}
+
+static int text_open(int scripted, int fullscreen)
 {
     struct termios t;
+    (void)fullscreen;
     if (scripted || tcgetattr(0, &orig_term) != 0)
         return 0;
     t = orig_term;
@@ -104,6 +111,29 @@ static void text_garden(const garden *g, ft_lang lang, const char *status)
     render_garden(g, status);
 }
 
+static void text_live(const live *l, player *p, const shell *s, const channel_list *chs)
+{
+    render_live(l, player_get(p), s, chs);
+}
+
+static int text_open_url(const char *url)
+{
+    printf("\n  open in a browser: %s\n", url);
+    return 0;
+}
+
+static int text_shell(const shell *s)
+{
+    render_shell(s);
+    return 0;
+}
+
+static int text_is_fullscreen(void)
+{
+    return 0;
+}
+
 const sim_frontend frontend_text = {
-    "text", text_open, raw_off, text_poll, render_shell, text_racer, text_penalty, text_garden
+    "text", text_folders, text_open, raw_off, text_poll, NULL, NULL, NULL, text_shell, text_racer, text_penalty, text_garden,
+    text_live, NULL, text_is_fullscreen, text_open_url, NULL, NULL
 };

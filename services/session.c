@@ -21,12 +21,12 @@ static ft_lang lang(const session *ss)
 
 static void say(session *ss, shell *s, ft_str id)
 {
-    snprintf(s->status, sizeof s->status, "[%s] %s", plat_name(), tr(lang(ss), id));
+    snprintf(s->status, sizeof s->status, "%s", tr(lang(ss), id));
 }
 
 static void say_with(session *ss, shell *s, ft_str id, const char *detail)
 {
-    snprintf(s->status, sizeof s->status, "[%s] %s %s", plat_name(), tr(lang(ss), id), detail);
+    snprintf(s->status, sizeof s->status, "%s %s", tr(lang(ss), id), detail);
 }
 
 static void sync(session *ss, shell *s)
@@ -37,6 +37,7 @@ static void sync(session *ss, shell *s)
     s->cfg.child_games = f->child_games;
     s->cfg.child_limit_s = f->play.daily_limit_s;
     s->cfg.play_remaining_s = play_remaining(&f->play);
+    s->cfg.quality = f->quality;
     if (s->cfg.profile != (profile_role)f->profile)
         shell_set_profile(s, (profile_role)f->profile);
 }
@@ -208,30 +209,51 @@ static void cycle_limit(play_policy *p)
 int session_dispatch(session *ss, shell *s, shell_action a)
 {
     family_settings *f = &ss->settings;
-    char buf[96];
 
     switch (a.act) {
-    case ACT_OPEN_BROADCAST:
-        say(ss, s, plat_open_broadcast() == PLAT_OK ? STR_LIVE_OPENED : STR_LIVE_FAILED);
-        break;
-    case ACT_TUNE_FAVOURITE: {
-        const char *name = s->cfg.favs[a.arg].name;
-        if (plat_tune_service(name) == PLAT_OK)
-            say_with(ss, s, STR_TUNED, name);
-        else if (plat_open_channel_list() == PLAT_OK)
-            say_with(ss, s, STR_TUNE_FALLBACK, name);
-        else
-            say(ss, s, STR_LIST_FAILED);
-        break;
+    case ACT_PLAY_CHANNEL:
+    case ACT_PLAY_SPORT: {
+        const channel_list *l = a.act == ACT_PLAY_SPORT ? &s->cfg.sports : &s->cfg.channels;
+        if (a.arg < 0 || a.arg >= l->n)
+            break;
+        ss->watch_channel = a.arg;
+        ss->watch_list = a.act == ACT_PLAY_SPORT ? WATCH_SPORTS : WATCH_TV;
+        return SESSION_WATCH;
     }
-    case ACT_OPEN_CHANNEL_LIST:
-        say(ss, s, plat_open_channel_list() == PLAT_OK ? STR_LIST_OPENED : STR_LIST_FAILED);
-        break;
-    case ACT_OPEN_YOUTUBE:
-    case ACT_OPEN_NETFLIX:
-        if (plat_open_app(a.act == ACT_OPEN_YOUTUBE ? "youtube" : "netflix") != PLAT_OK)
-            say(ss, s, STR_APP_UNAVAILABLE);
-        break;
+    case ACT_PLAY_FOUND:
+        /* Streams found by search are not vetted: not from the child profile. */
+        if (s->cfg.profile != PROFILE_PARENT) {
+            say(ss, s, STR_ASK_PARENT);
+            break;
+        }
+        if (a.arg < 0 || a.arg >= s->cfg.nfound)
+            break;
+        ss->watch_channel = a.arg;
+        ss->watch_list = WATCH_FOUND;
+        return SESSION_WATCH;
+    case ACT_PLAY_VIDEO:
+    case ACT_YT_SEARCH:
+        /* YouTube reaches everything: not from the child profile. */
+        if (s->cfg.profile != PROFILE_PARENT) {
+            say(ss, s, STR_ASK_PARENT);
+            break;
+        }
+        if (a.act == ACT_YT_SEARCH)
+            return SESSION_YT_SEARCH;
+        if (a.arg < 0 || a.arg >= YT_FEEDS * YT_FEED_MAX ||
+            a.arg % YT_FEED_MAX >= s->cfg.nvideos[a.arg / YT_FEED_MAX])
+            break;
+        ss->watch_channel = a.arg;
+        ss->watch_list = WATCH_VIDEO;
+        return SESSION_WATCH;
+    case ACT_OPEN_APP:
+        /* A browser reaches the whole internet: not from the child profile. */
+        if (s->cfg.profile != PROFILE_PARENT || a.arg < 0 || a.arg >= APP_COUNT) {
+            say(ss, s, STR_ASK_PARENT);
+            break;
+        }
+        ss->open_app = a.arg;
+        return SESSION_OPEN_APP;
     case ACT_LAUNCH_GAME:
         if (a.arg < 0 || a.arg >= GAME_COUNT)
             break;
@@ -247,11 +269,6 @@ int session_dispatch(session *ss, shell *s, shell_action a)
             }
         }
         return a.arg;
-    case ACT_WEB_SEARCH:
-        if (s->cfg.profile == PROFILE_PARENT && plat_web_search() == PLAT_OK)
-            break;
-        say(ss, s, STR_SEARCH_UNAVAILABLE);
-        break;
     case ACT_SWITCH_PROFILE:
         if (s->cfg.profile == PROFILE_CHILD) {
             ask_pin(ss, s, PIN_FOR_PARENT);
@@ -266,11 +283,8 @@ int session_dispatch(session *ss, shell *s, shell_action a)
             }
         }
         break;
-    case ACT_SHOW_SUPPORT:
-        snprintf(buf, sizeof buf, "YouTube: %s | Netflix: %s | Direct tuning: unverified",
-                 s->cfg.youtube_supported ? "tested" : "untested",
-                 s->cfg.netflix_supported ? "tested" : "untested");
-        snprintf(s->status, sizeof s->status, "[%s] %s", plat_name(), buf);
+    case ACT_ABOUT:
+        say(ss, s, STR_ABOUT_TEXT);
         break;
     case ACT_OPEN_PARENT_SETTINGS:
         if (s->cfg.profile != PROFILE_PARENT)
@@ -337,6 +351,13 @@ int session_dispatch(session *ss, shell *s, shell_action a)
     case ACT_CHANGE_PIN:
         if (settings_open(ss, s))
             start_new_pin(ss, s, AFTER_SETTINGS);
+        break;
+    case ACT_CYCLE_QUALITY:
+        if (settings_open(ss, s)) {
+            f->quality = (uint8_t)((f->quality + 1) % QUALITY_COUNT);
+            persist(ss, s);
+            sync(ss, s);
+        }
         break;
     case ACT_SETTINGS_CLOSED:
         ss->unlocked = 0;

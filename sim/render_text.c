@@ -27,7 +27,7 @@ static void header(const char *title, const char *right)
 {
     char clock[8];
     sim_clock_text(clock, sizeof clock);
-    printf(CLEAR "  %-28s Nairobi %s | %s   [SIMULATOR]\n\n", title, clock, right);
+    printf(CLEAR "  %-28s Nairobi %s | %s\n\n", title, clock, right);
 }
 
 static void footer(const char *keys, const char *status)
@@ -68,33 +68,28 @@ void render_shell(const shell *s)
     }
 
     if (s->screen == SCR_HOME) {
-        int row, c;
-        for (row = 0; row * SHELL_COLS < s->ntiles; row++) {
-            for (c = 0; c < SHELL_COLS; c++) {
-                int i = row * SHELL_COLS + c;
-                if (i < s->ntiles)
-                    printf("  +----------------------+");
-            }
-            printf("\n");
-            for (c = 0; c < SHELL_COLS; c++) {
-                int i = row * SHELL_COLS + c;
-                if (i < s->ntiles) {
-                    int on = i == s->focus;
-                    printf("  |%s%s %-20s%s|", on ? INV : "", on ? ">" : " ",
-                           shell_tile_label(s, s->tiles[i]), on ? RST : "");
-                }
-            }
-            printf("\n");
-            for (c = 0; c < SHELL_COLS; c++) {
-                int i = row * SHELL_COLS + c;
-                if (i < s->ntiles)
-                    printf("  |  %-20.20s|", shell_tile_hint(s, s->tiles[i]));
-            }
-            printf("\n");
-            for (c = 0; c < SHELL_COLS; c++) {
-                int i = row * SHELL_COLS + c;
-                if (i < s->ntiles)
-                    printf("  +----------------------+");
+        static shell_row rows[SHELL_MAX_ROWS];
+        int n = shell_home_rows(s, rows, SHELL_MAX_ROWS), r, i;
+        printf(" ");
+        for (i = 0; i < TOP_COUNT; i++) {
+            const char *label = i < TAB_COUNT ? shell_tab_label(L, i) : i == TOP_GEAR ? "[*]" : profile;
+            int on = s->row < 0 && s->top == i;
+            printf(" %s%s%s%s%s", on ? INV : "", i == (int)s->tab ? "[" : " ", label,
+                   i == (int)s->tab ? "]" : " ", on ? RST : "");
+        }
+        printf("\n\n");
+        for (r = 0; r < n; r++) {
+            if (rows[r].title != STR_COUNT)
+                printf("  %s\n", tr(L, rows[r].title));
+            printf("   ");
+            for (i = 0; i < rows[r].n; i++) {
+                int on = s->row == r && s->col[r] == i;
+                const shell_card *k = &rows[r].cards[i];
+                if (k->kind == CARD_CHANNEL)
+                    printf(" %s%s%3d %s%s", on ? INV : "", on ? ">" : " ", s->cfg.channels.ch[k->arg].number,
+                           shell_card_label(s, *k), on ? RST : "");
+                else
+                    printf(" %s%s%s%s", on ? INV : "", on ? ">" : " ", shell_card_label(s, *k), on ? RST : "");
             }
             printf("\n");
         }
@@ -105,9 +100,6 @@ void render_shell(const shell *s)
     {
         char labels[SHELL_MAX_ITEMS][SHELL_LABEL_MAX];
         int n = shell_list(s, labels, SHELL_MAX_ITEMS), i;
-        if (s->screen == SCR_GAMES && s->cfg.profile == PROFILE_CHILD && s->cfg.child_limit_s != 0)
-            printf("  %s: %u %s\n\n", tr(L, STR_TIME_LEFT),
-                   (unsigned)((s->cfg.play_remaining_s + 59) / 60), tr(L, STR_MINUTES));
         for (i = 0; i < n; i++) {
             int on = i == s->item;
             printf("  %s%s %s%s\n", on ? INV : "", on ? ">" : " ", labels[i], on ? RST : "");
@@ -257,4 +249,41 @@ void render_garden(const garden *g, const char *status)
     } else {
         footer("Arrows: move   OK: place tile   Back: menu (tile, save, exit)", status);
     }
+}
+
+static const char *player_state_text(const player_status *ps)
+{
+    switch (ps->state) {
+    case PLAYER_IDLE: return "Idle";
+    case PLAYER_LOADING: return "Connecting";
+    case PLAYER_PLAYING: return "Playing";
+    case PLAYER_BUFFERING: return "Buffering";
+    case PLAYER_ERROR: return "Error";
+    }
+    return "";
+}
+
+void render_live(const live *l, const player_status *ps, const shell *s, const channel_list *chs)
+{
+    ft_lang L = s->cfg.lang;
+    int i;
+    if (chs->n <= 0)
+        return;
+    header(chs->ch[l->shown].name, tr(L, STR_LIVE_TV));
+    printf("  Channel %d  %s   [%s%s%s]   volume %d\n", chs->ch[l->shown].number, chs->ch[l->shown].name,
+           player_state_text(ps), ps->state == PLAYER_ERROR ? ": " : "",
+           ps->state == PLAYER_ERROR ? player_error_name(ps->error) : "", l->volume);
+    if (l->tune_wait_ms > 0)
+        printf("  (changing channel...)\n");
+    if (l->panel_open) {
+        printf("\n  %s\n", tr(L, STR_ALL_CHANNELS));
+        for (i = 0; i < chs->n; i++) {
+            int on = i == l->panel_item;
+            printf("  %s%s %3d %s%s%s\n", on ? INV : "", on ? ">" : " ", chs->ch[i].number, chs->ch[i].name,
+                   i == l->current ? "  (on now)" : "", on ? RST : "");
+        }
+        footer(tr(L, STR_HELP_PANEL), "");
+        return;
+    }
+    footer(tr(L, ps->state == PLAYER_ERROR ? STR_HELP_ERROR : STR_HELP_LIVE), "");
 }

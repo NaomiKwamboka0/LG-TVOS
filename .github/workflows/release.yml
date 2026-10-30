@@ -1,0 +1,116 @@
+# Builds the Windows installer and zip (cross-compiled, as on the
+# developer's Mac), the macOS .dmg and the advert video on one macOS 15
+# machine; then installs and starts each installer on a clean Windows and a
+# clean Mac machine. A tag like v1.0.0 publishes them as a GitHub release;
+# "Run workflow" by hand only builds and tests (files under the run's
+# Artifacts).
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # Homebrew's libraries are copied into the app and need the macOS they
+    # were built for; macOS 15 keeps the .dmg working on macOS 15 and newer.
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag matches the version in the Makefile
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: test "$GITHUB_REF_NAME" = "v$(awk '/^VERSION :=/ {print $3}' Makefile)"
+      - name: Tools and libraries
+        run: brew install sdl2 mpv pkgconf dylibbundler mingw-w64 sevenzip makensis ffmpeg
+      - name: Pinned downloads (SHA-256 checked)
+        run: make win-deps mac-deps
+      - name: Unit tests
+        run: make test
+      - name: Installers, zip and checksums
+        run: make release
+      - name: Advert video
+        run: |
+          make promo
+          cp out/promo/familytv-promo.mp4 out/release/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: family-tv-release
+          path: out/release/
+          if-no-files-found: error
+
+  test-windows:
+    needs: build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: family-tv-release
+      - name: Install silently, as a user
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem FamilyTV-Setup-*.exe | Select-Object -First 1
+          Start-Process -Wait -FilePath $setup.FullName -ArgumentList '/S'
+          $dir = "$env:LOCALAPPDATA\Programs\FamilyTV"
+          foreach ($f in 'FamilyTV.exe', 'SDL2.dll', 'libmpv-2.dll', 'yt-dlp.exe', 'deno.exe', 'channels.txt', 'Uninstall.exe') {
+            if (!(Test-Path "$dir\$f")) { throw "not installed: $f" }
+          }
+          if (!(Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Family TV.lnk")) { throw "no Start menu shortcut" }
+      - name: Start it with scripted keys (no screen needed)
+        shell: pwsh
+        run: |
+          $env:SDL_VIDEODRIVER = 'dummy'
+          $exe = "$env:LOCALAPPDATA\Programs\FamilyTV\FamilyTV.exe"
+          $frame = "$env:RUNNER_TEMP\frame.ppm"
+          $p = Start-Process -Wait -PassThru -FilePath $exe -ArgumentList '--data', "$env:RUNNER_TEMP\ftv", '--dump-frame', $frame, '--keys', 'BACK,R,R,R,R,D,R,OK,OK,OK,W90'
+          if ($p.ExitCode -ne 0) { throw "Family TV exited with $($p.ExitCode)" }
+          if ((Get-Item $frame).Length -lt 1000000) { throw "no picture was drawn" }
+      - name: Uninstall silently
+        shell: pwsh
+        run: |
+          $dir = "$env:LOCALAPPDATA\Programs\FamilyTV"
+          Start-Process -Wait -FilePath "$dir\Uninstall.exe" -ArgumentList '/S'
+          for ($i = 0; $i -lt 30 -and (Test-Path "$dir\FamilyTV.exe"); $i++) { Start-Sleep 1 }
+          if (Test-Path "$dir\FamilyTV.exe") { throw "still installed" }
+
+  test-mac:
+    needs: build
+    runs-on: macos-15
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: family-tv-release
+      - name: Open the .dmg and start the app with scripted keys
+        run: |
+          mnt="$RUNNER_TEMP/dmg"
+          mkdir -p "$mnt"
+          hdiutil attach -nobrowse -readonly -mountpoint "$mnt" FamilyTV-*-macos.dmg
+          app="$mnt/Family TV.app"
+          codesign --verify --deep --strict "$app"
+          DYLD_PRINT_LIBRARIES=1 SDL_VIDEODRIVER=dummy "$app/Contents/MacOS/FamilyTV" --data "$RUNNER_TEMP/ftv" \
+            --dump-frame "$RUNNER_TEMP/frame.ppm" --keys BACK,R,R,R,R,D,R,OK,OK,OK,W90 2> "$RUNNER_TEMP/libs.txt"
+          test -s "$RUNNER_TEMP/frame.ppm"
+          if grep -E '/opt/homebrew|/usr/local' "$RUNNER_TEMP/libs.txt"; then echo "loads libraries from outside the app"; exit 1; fi
+          hdiutil detach "$mnt"
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [test-windows, test-mac]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: family-tv-release
+          path: release
+      - name: GitHub release with the installers and the video
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" release/* \
+            --title "Family TV ${GITHUB_REF_NAME#v}" --notes-file packaging/release-notes.md

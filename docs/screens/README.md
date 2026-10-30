@@ -1,14 +1,24 @@
-# Screens (rendered on the computer)
+# Screens
 
-These pictures come from `make screens`, which draws each screen with the same software renderer
-intended for the TV (1280x720). They show layout and wording only. Real colours, sharpness and speed
-on the LG panel are not known until gate I05 (display) passes. The football favourites are demo data.
+These pictures come from `make screens`, which draws each screen with the app's own software renderer
+at 1280x720. The layout follows TCL's Google TV launcher (tabs along the top, a wide banner, rows of
+cards, a channel guide, an info banner and a channel list while watching), drawn with our own artwork
+and the open Inter typeface. Cards are 3D slabs (after 21st.dev's tilt cards): thick, lit, glossy,
+with extruded icons; the focused one floats in its own colour and turns toward the mouse pointer. Live TV shots show the stub player's colour bars where the station's
+picture would be.
 
 | | |
 |---|---|
-| ![Home](01-home.png) Home | ![Home in Kiswahili](06-home-kiswahili.png) Home, Kiswahili |
-| ![Football](02-football.png) Football favourites | ![Games for a child](03-games-child.png) Games, child profile |
-| ![PIN](04-pin.png) Parent PIN (only the digit being changed is shown) | ![Parent settings](05-parent-settings.png) Parent settings |
-| ![Racer start](07-racer-start.png) Family Racer, start | ![Racer](08-racer-running.png) Family Racer |
-| ![Penalty aim](09-penalty-aim.png) Penalty Cup, aiming | ![Goal](10-penalty-goal.png) Penalty Cup, goal |
-| ![Garden](11-garden.png) Block Garden | ![Garden menu](12-garden-menu-kiswahili.png) Block Garden menu, Kiswahili |
+| ![For you](01-for-you.png) For you: last channel, channel row, games | ![Channel row](02-live-channels-row.png) Moving along the channel row |
+| ![Channel guide](03-channel-guide.png) Live TV tab: the channel guide | ![Apps for a child](04-apps-child.png) Apps tab, child profile with play time left |
+| ![Settings](05-settings.png) Settings (gear) | ![PIN](06-pin.png) Parent PIN (only the digit being changed is shown) |
+| ![Parent settings](07-parent-settings.png) Parent settings: live TV picture and data use | ![Kiswahili](08-home-kiswahili.png) Home in Kiswahili |
+| ![Banner](09-live-banner.png) Watching: info banner | ![Channel list](10-live-channel-list.png) Watching: channel list (OK) |
+| ![Volume](11-live-volume.png) Watching: volume (Left/Right) | ![Connecting](12-live-connecting.png) Connecting to a channel |
+| ![Not live](13-live-not-live.png) The channel is not live right now | ![Offline](14-live-offline-kiswahili.png) No internet, in Kiswahili |
+| ![Racer start](15-racer-start.png) Family Racer, start | ![Racer](16-racer-running.png) Family Racer |
+| ![Penalty aim](17-penalty-aim.png) Penalty Cup, aiming | ![Goal](18-penalty-goal.png) Penalty Cup, goal |
+| ![Garden](19-garden.png) Block Garden | ![Garden menu](20-garden-menu-kiswahili.png) Block Garden menu, Kiswahili |
+| ![Sports banner](21-sports-banner.png) The Sports banner on For you | ![Sports tab](22-sports-tab.png) Sports tab: live now, live football found on YouTube (example titles), coming up |
+| ![Netflix tile](23-netflix-tile.png) Watch more: Sports, Netflix, YouTube | ![Mouse tilt](26-mouse-tilt.png) The focused card turned toward the mouse pointer |
+| ![YouTube keyboard](27-youtube-keyboard.png) YouTube tab: the search keyboard (or type on the laptop) | ![Start-up](25-startup-name.png) Start-up animation |

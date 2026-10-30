@@ -5,6 +5,7 @@
 
 /* Versioned, checksummed save files (plan p.16 persistence contract, p.22 save service).
  * Write: temp file, fsync, keep last-known-good as <path>.prev, atomic rename.
+ * A file with an older schema still counts as last-known-good.
  * Read: on corruption, quarantine to <path>.bad and fall back to <path>.prev. */
 
 #define FT_SAVE_MAX (256u * 1024u)
@@ -22,5 +23,9 @@ int ft_save_write(const char *path, const char magic[4], uint16_t schema,
                   const void *data, uint32_t len);
 int ft_save_read(const char *path, const char magic[4], uint16_t schema,
                  void *buf, uint32_t cap, uint32_t *out_len);
+/* Accepts any schema in [min_schema, max_schema] and reports which one it
+ * found, so a newer program can migrate an older file instead of discarding it. */
+int ft_save_read_range(const char *path, const char magic[4], uint16_t min_schema, uint16_t max_schema,
+                       void *buf, uint32_t cap, uint32_t *out_len, uint16_t *out_schema);
 
 #endif

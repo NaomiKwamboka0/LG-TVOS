@@ -1,0 +1,27 @@
+Family TV for macOS: what is inside and under which licence
+
+Family TV.app/Contents/MacOS/FamilyTV
+                  Family TV itself, GNU General Public Licence version 3
+                  (LICENSE). Uses Monocypher (Monocypher-LICENCE.md) and
+                  the Inter typeface (SIL Open Font Licence,
+                  Inter-LICENSE.txt).
+Contents/Frameworks
+                  Libraries copied from Homebrew when the app was built:
+                  SDL 2 (sdl2-compat) and SDL 3, zlib licence
+                  (SDL-LICENSE.txt), https://www.libsdl.org; libmpv,
+                  GNU General Public Licence version 2 or later,
+                  https://github.com/mpv-player/mpv; FFmpeg and the other
+                  libraries libmpv needs, under GPL, LGPL and similar
+                  licences. Each library's source is at
+                  https://github.com/Homebrew/homebrew-core (the formula
+                  of the same name points to it).
+Contents/Resources/yt-dlp
+                  yt-dlp 2026.10.26, public domain (The Unlicense).
+                  https://github.com/yt-dlp/yt-dlp
+Contents/Resources/deno
+                  Deno 2.9.8, MIT licence. https://github.com/denoland/deno
+
+Family TV's own source: https://github.com/NaomiKwamboka0/family-tv
+Because libmpv is GPL, anyone who passes the program on to others must
+also offer them the source code of Family TV and of these components under
+the same terms.

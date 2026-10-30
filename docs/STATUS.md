@@ -1,62 +1,98 @@
-# Status against plan v2.0
+# Status
 
-Source: `LG32LB580V_Standalone_OS_Architecture (1).pdf` (v2.0, 23 Oct 2026).
+Family TV moved from the family's LG TV (now broken) to a laptop app on 2026-10-28. This page says
+what has been checked, where, and what has not.
 
-## Installation gates (p.41)
+## Checked on the development Mac (Apple Silicon, macOS 15)
 
-| Gate | Status | Notes |
-|------|--------|-------|
-| I01 Identity | BLOCKED | Model/firmware observed; rear-label vs info-screen serial mismatch unresolved |
-| I02 Access | NOT RUN | No legitimate code-execution route established on this TV |
-| I03 ABI | NOT RUN | Needs vendor ELF headers + runtime report |
-| I04 Memory/storage | NOT RUN | |
-| I05 Display/input | NOT RUN | |
-| I06 TV/audio/power | NOT RUN | |
-| I07 Recovery | NOT RUN | No recovery path verified; persistent install BLOCKED |
-| I08 Temporary trial | NOT RUN | |
-| I09 Persistence | NOT RUN | |
-| I10 Package | NOT RUN | |
-| I11 Standalone | NOT RUN | |
-| I12 Release | NOT RUN | |
+- `make`: 601 unit checks under AddressSanitizer and UndefinedBehaviorSanitizer, the font check,
+  two scripted terminal walks (watch a channel and zap, play a game, create a PIN, switch language)
+  and two headless window walks.
+- Live channels, real streams (2026-10-28, about 23:00 EAT, yt-dlp 2026.10.26, libmpv 0.41):
+  - Citizen TV plays at 480p with hardware decoding (VideoToolbox), about 12 s from OK to picture;
+    zapping to NTV works.
+  - Drawing a frame costs about 2.3 ms for the picture and 0.6 ms for the overlays (`--stats`).
+  - Error cards appear for each failure seen in practice: a channel that is not live (KBC at that
+    hour), a wrong address, yt-dlp missing, and no internet (simulated with a dead proxy).
+- Channel line-up checked with `tools/verify-channels.sh`: all ten addresses are the stations' own
+  channel IDs. Live at the time: Citizen, NTV, KTN News, K24, TV47, Inooro. KBC, Kameme, Ramogi and
+  Switch were not live then and stream on a schedule.
+- Settings written before live TV (schema 1) load with PIN and child profile intact (unit test).
 
-All 56 acceptance tests (H, U, G, N, F, S, P, K) are NOT RUN on the TV.
+## The Mac app (checked 2026-10-30 on the development Mac)
 
-## Done on the computer (host only, not device evidence)
+- `make mac-dmg` makes `FamilyTV-1.0.0-macos.dmg` (about 106 MB): 52 libraries copied out of
+  Homebrew into the app, signed ad hoc, nothing built for newer than macOS 15.
+- Started from inside the mounted .dmg; `DYLD_PRINT_LIBRARIES` shows nothing loaded from Homebrew,
+  SDL 3 included (sdl2-compat opens it at run time).
+- Citizen TV played live through the app's own libmpv, yt-dlp and deno with Homebrew off `PATH`.
+- Not yet tried on a Mac that never had Homebrew, nor through Gatekeeper's first-start prompt after
+  a real download. The release workflow's clean-machine test covers the first.
 
-- `evidence/hardware.json`: observed / documented / unverified / unknown facts kept separate.
-- `tools/validate_manifest.py`: structure check; `--install-ready` rejects nulls and placeholders.
-- `board/lg32lb580v/collect-report.sh`: read-only collector from p.43 (run on the TV only after I02).
-- `probe/probe.c`: harmless probe; host build only. Target build blocked until I03.
-- `ui/shell.*`: family home (Live TV, Football, Games, More; YouTube/Netflix tiles hidden until
-  exact-device playback is tested). Favourites become shortcuts only when reception is confirmed.
-- `services/session.*` + `platform/sim.c`: platform adapter interface; direct tuning reports
-  UNSUPPORTED, so Football shortcuts fall back to the TV channel list (p.19).
-- `games/`: Family Racer, Penalty Cup, Block Garden (original games, remote-only, seeded and
-  deterministic) and a checksummed save service with last-known-good fallback.
-- `sim/`: terminal simulator. `make run-sim`. All behaviour is labelled [SIMULATOR].
-- `services/pin.*`: parent PIN stored only as a salted Argon2id verifier (vendored Monocypher
-  4.0.2, see `third_party/monocypher/README.md`). 3 free tries, then 30 s doubling to a 5 min
-  lockout; the failure count survives restarts. Argon2 cost must be re-tuned on the TV.
-- `services/playtime.*`: children's daily allowance counted on a monotonic clock; resets at
-  Nairobi midnight only while the TV clock is trusted (not before 2026, not moved backwards).
-  Known limit: moving the TV clock forward can trigger an early reset.
-- `services/settings.*` + `services/session.*`: Parent settings behind the PIN (language, daily
-  limit, +15 min, reset today, allowed games, change PIN). Child profile survives restarts.
-- `services/i18n.*`: optional Kiswahili labels (draft wording for the family to correct).
-- `ui/canvas.*`, `ui/view.*`, `ui/font_data.c`: software 2D renderer at 1280x720 (ADR-02) drawing the
-  home screen, lists, PIN entry and all three games, with Spleen bitmap fonts (BSD-2-Clause). Every
-  draw is clipped to the buffer; views are pure functions of state. `make screens` writes
-  `docs/screens/*.png`. The TV display backend is still unchosen (gate I05).
-- `sim/frontend_*.c`: the simulator runs either in the terminal (`make run-sim`) or in a desktop
-  window showing the real pixel views (`make run-window`, SDL2 on the computer only; SDL is never
-  part of the TV build). Held OK/Back do not repeat. `make window-smoke` checks the window build
-  headlessly.
-- Tests: 402 host checks (ASan/UBSan) plus two scripted simulator walks. Host logic for G01-G05,
-  F03, S01, U01, U07-U09, R06. These are not TV results; the TV tests stay NOT RUN.
+## Sports tab, YouTube, mouse and 3D look (checked 2026-10-30 on the development Mac)
 
-## Next
+- Unit tests cover the Sports tab rows, the live football search filter (with real titles seen
+  that night: NFL, US school games, "Video Game Simulation" streams, talk shows), the YouTube rows,
+  search keyboard and typing, mouse hit-testing and focus, and the 3D card turned at the screen edge.
+- Real searches: YouTube rows filled (Football, Kenya news) and a Kenya news video played inside
+  Family TV through yt-dlp and libmpv. A yt-dlp search takes 20-40 s here, so the rows show
+  "Loading..." first.
+- 3D cards cost about 10 ms a frame at 720p on this Mac (8 ms before); a Retina screen draws four
+  times the pixels.
+- Not checked yet: Netflix's app window on Windows (Edge), the mouse on a Windows laptop.
 
-1. Owner: Work packet A (p.31) using the normal remote — channel list/order, Citizen/KTN/SportyTV reception, YouTube/Netflix status, stock timings.
-2. Family: review the Kiswahili wording in `services/i18n.c`.
-3. Host: frame-time and input-latency measurement in the window build (groundwork for P01/P03);
-   optional offline-first fixtures cache. TV display/input backend only after gates I02-I05.
+## Release workflow (not run yet)
+
+`.github/workflows/release.yml` builds the Windows installer, zip, Mac .dmg and advert on a macOS 15
+runner, then installs the Setup.exe silently on a clean Windows machine, starts it with scripted
+keys (SDL dummy video driver), uninstalls it, and starts the Mac app from the .dmg on a clean Mac.
+The first run will be the first time Family TV runs on Windows at all.
+
+## Built but not yet run on Windows
+
+`make win-zip` cross-compiles a Windows 10/11 program and the import table shows only Windows' own
+DLLs plus SDL2 and libmpv. Nothing has run on Windows yet: Wine is no longer available on this Mac
+(Homebrew disabled it on 2026-09-01). These Windows-only fixes are covered by unit tests that pass
+on the Mac but still need a run on Windows (`out/win/test-core.exe`, or `make test` in MSYS2):
+
+- saves use binary mode and replace files atomically (`MoveFileEx`); before, every save would have
+  read back as damaged and the third save would have failed
+- the PIN salt comes from `BCryptGenRandom` (before: no randomness, so no PIN could be created)
+- glow maths in 64-bit (Windows `long` is 32-bit: glows would have drawn garbage)
+
+On the laptop, check:
+
+- [ ] the zip unzips to `Documents\FamilyTV`; `FamilyTV.exe` starts after SmartScreen's
+      "More info" > "Run anyway"
+- [ ] home screen glows look like `docs/screens/01-for-you.png`
+- [ ] F11 full screen; the window fits the screen
+- [ ] Citizen TV plays within about 15 s; the banner, channel list (Enter) and volume work; no
+      black console window flashes up while a channel starts
+- [ ] Parent settings: create a PIN, switch to the child profile, change three settings, restart:
+      everything is kept
+- [ ] a game plays; play time counts down for the child
+- [ ] with Wi-Fi off, a channel shows "No internet connection"
+- [ ] Task Manager: Family TV's CPU use while watching at 480p and 720p (`--stats` shows the cost
+      per frame; send both numbers if it stutters)
+
+If anything fails, send `%APPDATA%\FamilyTV\FamilyTV\familytv.log`.
+
+## Known limits
+
+- YouTube changes break yt-dlp from time to time; then every channel says it could not play.
+  Updating yt-dlp (`yt-dlp.exe -U` in the Family TV folder) fixes it.
+- YouTube may ask for a "not a bot" check on shared mobile connections. Family TV says so; waiting
+  or another network helps. Signing in is not supported.
+- "Live football now" only finds what YouTube's live search shows: often watch-alongs and live
+  scores rather than the match pictures, which belong to the broadcasters. Unofficial re-streams are
+  cut by YouTube, sometimes mid-match.
+- YouTube videos play without a progress bar or seeking yet; Up/Down go to the next video in the row.
+- Channels take 10-15 s to start: yt-dlp needs about 4 s and opening the separate sound and picture
+  streams the rest. Looking up neighbouring channels ahead of time could shorten zapping; not done.
+- The Windows zip is about 110 MB and the installer about 90 MB (libmpv, deno and yt-dlp).
+  `FamilyTV.exe` and the installer are not code-signed (SmartScreen asks once).
+- The Kiswahili text is a first draft for the family to correct.
+- libmpv is GPL, so Family TV is shared under GPL-3.0 with its source on GitHub; the installers carry
+  the licence notices (`LICENSES/NOTICE.txt`).
+- The Mac app needs Apple silicon and macOS 15 or newer (the Homebrew libraries inside it); it is
+  signed ad hoc, not notarised, so the first start goes through Privacy & Security > Open Anyway.

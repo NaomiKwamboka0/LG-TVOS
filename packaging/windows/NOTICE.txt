@@ -1,0 +1,21 @@
+Family TV for Windows: what is inside and under which licence
+
+FamilyTV.exe      Family TV itself. Uses Monocypher (licence in
+                  Monocypher-LICENCE.md) and the Inter typeface (SIL Open
+                  Font Licence, Inter-LICENSE.txt).
+SDL2.dll          Simple DirectMedia Layer 2.32.10, zlib licence
+                  (SDL2-LICENSE.txt). https://www.libsdl.org
+libmpv-2.dll      mpv video player library, built by shinchiro
+                  (https://github.com/shinchiro/mpv-winbuild-cmake).
+                  GNU General Public Licence, version 2 or later; it
+                  includes FFmpeg and other libraries under GPL/LGPL.
+                  Source: https://github.com/mpv-player/mpv and the build
+                  scripts at the address above. Licence text:
+                  https://www.gnu.org/licenses/old-licenses/gpl-2.0.txt
+yt-dlp.exe        yt-dlp 2026.10.26, public domain (The Unlicense).
+                  https://github.com/yt-dlp/yt-dlp
+deno.exe          Deno 2.9.8, MIT licence. https://github.com/denoland/deno
+
+This copy is for the family's own use. Because libmpv is GPL, anyone who
+passes the program on to others must also offer them the source code of
+Family TV and of these components under the same terms.

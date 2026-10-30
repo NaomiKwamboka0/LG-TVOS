@@ -6,11 +6,11 @@
  * find the Nairobi day, and only while it looks trustworthy.
  *
  * Declared policy:
- *  - the allowance resets at Nairobi midnight when the TV clock is trusted;
+ *  - the allowance resets at Nairobi midnight when the computer clock is trusted;
  *  - a clock earlier than 2026-01-01, or moved backwards, never resets it;
  *  - parents can give extra minutes or reset today after entering the PIN.
- * Known limit: moving the TV clock forward (TV settings access) can cause an
- * early reset. This is recorded, not hidden. */
+ * Known limit: moving the computer clock forward (Windows settings access)
+ * can cause an early reset. This is recorded, not hidden. */
 
 #include <stddef.h>
 #include <stdint.h>
@@ -38,5 +38,19 @@ void play_grant(play_policy *p, uint32_t seconds);
 void play_reset_today(play_policy *p);
 size_t play_pack(const play_policy *p, uint8_t *out, size_t cap);
 int play_unpack(play_policy *p, const uint8_t *in, size_t n);
+
+/* Measures active play from a monotonic clock. A single step never counts
+ * more than PLAY_METER_MAX_STEP_MS, so a laptop sleeping mid-game (lid
+ * closed) does not charge the child for the time it slept. */
+#define PLAY_METER_MAX_STEP_MS 1000u
+
+typedef struct {
+    uint64_t last_ms;
+    uint32_t carry_ms;
+} play_meter;
+
+void play_meter_start(play_meter *m, uint64_t now_ms);
+/* Returns the whole seconds of play to charge since the last step. */
+uint32_t play_meter_step(play_meter *m, uint64_t now_ms, int active);
 
 #endif
