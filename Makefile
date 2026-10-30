@@ -214,7 +214,7 @@ win: $(WIN_DIR)/FamilyTV.exe
 	cp $(WIN_SDL)/bin/SDL2.dll $(WIN_MPV)/libmpv-2.dll deps/yt-dlp/x/yt-dlp.exe deps/deno/x/deno.exe $(WIN_DIR)/
 	cp assets/channels.txt packaging/windows/README-Windows.txt $(WIN_DIR)/
 	mkdir -p $(WIN_DIR)/LICENSES
-	cp packaging/windows/NOTICE.txt $(WIN_DIR)/LICENSES/
+	cp packaging/windows/NOTICE.txt LICENSE OWNERSHIP.md PRIVACY.md $(WIN_DIR)/LICENSES/
 	cp deps/sdl2/x/SDL2-2.32.10/LICENSE.txt $(WIN_DIR)/LICENSES/SDL2-LICENSE.txt
 	cp third_party/monocypher/LICENCE.md $(WIN_DIR)/LICENSES/Monocypher-LICENCE.md
 	cp assets/fonts/inter/LICENSE.txt $(WIN_DIR)/LICENSES/Inter-LICENSE.txt
@@ -268,7 +268,7 @@ mac-app: $(OUT)/host/familytv
 	cp $(INTER)/*.ttf "$(MAC_C)/Resources/fonts/"
 	cp deps/mac-yt-dlp/x/yt-dlp_macos "$(MAC_C)/Resources/yt-dlp"
 	cp deps/mac-deno/x/deno "$(MAC_C)/Resources/deno"
-	cp LICENSE packaging/macos/NOTICE.txt "$(MAC_C)/Resources/LICENSES/"
+	cp LICENSE OWNERSHIP.md PRIVACY.md packaging/macos/NOTICE.txt "$(MAC_C)/Resources/LICENSES/"
 	cp third_party/monocypher/LICENCE.md "$(MAC_C)/Resources/LICENSES/Monocypher-LICENCE.md"
 	cp assets/fonts/inter/LICENSE.txt "$(MAC_C)/Resources/LICENSES/Inter-LICENSE.txt"
 	cp "$$(dirname $(SDL3_LIB))/../share/licenses/SDL3/LICENSE.txt" "$(MAC_C)/Resources/LICENSES/SDL-LICENSE.txt" 2>/dev/null || \

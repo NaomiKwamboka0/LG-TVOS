@@ -117,6 +117,13 @@ watching), `--verbose` (player messages on the terminal), `--data DIR`, `--fulls
 `--keys OK,W60,...` (scripted keys; add `--player mpv` to try real streams headlessly with
 `SDL_VIDEODRIVER=dummy`). `FAMILYTV_MPV="hwdec=no;..."` passes extra mpv options.
 
+## Ownership, privacy and licence
+
+Copyright © 2026 Naomi Kwamboka Onyancha. Free software under the [GPL-3.0](LICENSE).
+[OWNERSHIP.md](OWNERSHIP.md) says who owns what, what you may do with it, and the trademark notice.
+[PRIVACY.md](PRIVACY.md) says what data Family TV keeps (on your computer only; nothing is sent to the
+author) and what the services it opens (YouTube, Netflix, Google) see.
+
 ## Layout
 
 | Folder | What |
