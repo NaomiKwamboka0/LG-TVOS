@@ -307,13 +307,13 @@ mac-dmg: mac-check
 	  $(MAC_OUT)/FamilyTV-$(VERSION)-macos.dmg
 	@ls -l $(MAC_OUT)/FamilyTV-$(VERSION)-macos.dmg
 
-# Everything for a GitHub release, with checksums, in out/release.
+# Everything for a GitHub release, with checksums, in out/release: one
+# installer per computer, nothing to unzip.
 RELEASE := $(OUT)/release
-release: win-zip win-setup mac-dmg
+release: win-setup mac-dmg
 	rm -rf $(RELEASE)
 	mkdir -p $(RELEASE)
-	cp $(WIN_OUT)/FamilyTV-Setup-$(VERSION).exe $(WIN_OUT)/FamilyTV-$(VERSION)-windows.zip \
-	  $(MAC_OUT)/FamilyTV-$(VERSION)-macos.dmg $(RELEASE)/
+	cp $(WIN_OUT)/FamilyTV-Setup-$(VERSION).exe $(MAC_OUT)/FamilyTV-$(VERSION)-macos.dmg $(RELEASE)/
 	cd $(RELEASE) && shasum -a 256 FamilyTV-* > SHA256SUMS.txt
 	@cat $(RELEASE)/SHA256SUMS.txt
 

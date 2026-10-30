@@ -18,7 +18,7 @@ From the [latest release](https://github.com/NaomiKwamboka0/family-tv/releases/l
 
 | Your computer | Download |
 |---|---|
-| Windows 10 or 11 | [FamilyTV-Setup-1.0.0.exe](https://github.com/NaomiKwamboka0/family-tv/releases/latest/download/FamilyTV-Setup-1.0.0.exe) (installer) or [FamilyTV-1.0.0-windows.zip](https://github.com/NaomiKwamboka0/family-tv/releases/latest/download/FamilyTV-1.0.0-windows.zip) (no install) |
+| Windows 10 or 11 | [FamilyTV-Setup-1.0.0.exe](https://github.com/NaomiKwamboka0/family-tv/releases/latest/download/FamilyTV-Setup-1.0.0.exe) (installer) |
 | Mac with Apple silicon (M1 or newer), macOS 15 or newer | [FamilyTV-1.0.0-macos.dmg](https://github.com/NaomiKwamboka0/family-tv/releases/latest/download/FamilyTV-1.0.0-macos.dmg) |
 
 Family TV is not signed by a company yet, so the first start asks once. **Windows:** "Windows

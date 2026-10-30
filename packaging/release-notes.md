@@ -7,7 +7,6 @@ Kenyan TV channels, world news and live sport from the stations' own YouTube str
 | Your computer | File | |
 |---|---|---|
 | Windows 10 or 11 | `FamilyTV-Setup-<version>.exe` | Installer with Start menu and desktop shortcuts |
-| Windows, no install | `FamilyTV-<version>-windows.zip` | Unzip anywhere, double-click `FamilyTV.exe` |
 | Mac with Apple silicon (M1 or newer), macOS 15+ | `FamilyTV-<version>-macos.dmg` | Open it, drag Family TV to Applications |
 
 **First start.** Family TV is not signed by a company yet, so the computer asks once:
